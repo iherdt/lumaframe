@@ -126,6 +126,9 @@ class ConfigReceiver : BroadcastReceiver() {
         const val KEY_CLOCK_FACE = "clock_face" // which overlay clock style to draw (see CLOCK_FACES)
         const val DEFAULT_CLOCK_FACE = "classic"
         const val KEY_CLOCK_LOW_LIGHT = "clock_low_light" // boolean: clock-only in low light
+        // boolean, off by default, ADB only: the scanner saves some camera frames per session to
+        // the app's external files folder so a failing scan can be studied. Pictures of the room.
+        const val KEY_SCAN_DEBUG = "scan_debug"
         const val KEY_NIGHT = "night"           // boolean: warm night dimming
         const val KEY_ON_THIS_DAY = "on_this_day" // boolean: surface memories
         const val KEY_CAPTIONS = "captions"     // boolean: photo date captions
@@ -166,6 +169,7 @@ class ConfigReceiver : BroadcastReceiver() {
             arrayOf("captions", KEY_CAPTIONS), arrayOf("face_framing", KEY_FACE), arrayOf("ambient_color", KEY_AMBIENT),
             arrayOf("auto_enhance", KEY_ENHANCE), arrayOf("zoom_fill", KEY_ZOOM_FILL),
             arrayOf("fortune", KEY_FORTUNE), arrayOf("sticky_notes", KEY_NOTES),
+            arrayOf("scan_debug", KEY_SCAN_DEBUG),
         )
 
         // Per-album photo caches are managed by AlbumCache (keyed by album URL).

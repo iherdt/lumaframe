@@ -8,6 +8,7 @@
     <ID>ComplexCondition:LocalDropServer.kt$LocalDropServer$u(0) == 0x89 &amp;&amp; u(1) == 0x50 &amp;&amp; u(2) == 0x4E &amp;&amp; u(3) == 0x47</ID>
     <ID>ComplexCondition:LocalDropServer.kt$LocalDropServer$u(4) == 0x66 &amp;&amp; u(5) == 0x74 &amp;&amp; u(6) == 0x79 &amp;&amp; u(7) == 0x70</ID>
     <ID>ComplexCondition:QrDecode.kt$QrSearch.Companion$r.left == 0 &amp;&amp; r.top == 0 &amp;&amp; r.w == src.w &amp;&amp; r.h == src.h</ID>
+    <ID>ComplexCondition:QrGray.kt$QrGray$x &lt; -1f || y &lt; -1f || x &gt; img.w || y &gt; img.h</ID>
     <ID>ComplexCondition:SlideshowController.kt$SlideshowController$!pairs || items.size &lt; 2 || start &lt; 0 || start &gt;= items.size</ID>
     <ID>ComplexCondition:SlideshowController.kt$SlideshowController$lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")</ID>
     <ID>ComplexCondition:SlideshowController.kt$SlideshowController.&lt;no name provided&gt;$!moved &amp;&amp; !pinching &amp;&amp; abs(e.x - downX) &lt; TAP_SLOP &amp;&amp; abs(e.y - downY) &lt; TAP_SLOP &amp;&amp; dt &lt; TAP_TIMEOUT_MS</ID>
@@ -23,7 +24,8 @@
     <ID>CyclomaticComplexMethod:LocalDropServer.kt$LocalDropServer$private fun imageExt(data: ByteArray, filename: String, contentType: String): String?</ID>
     <ID>CyclomaticComplexMethod:LocalDropServer.kt$LocalDropServer$private fun readHead(input: BufferedInputStream): ByteArray?</ID>
     <ID>CyclomaticComplexMethod:PhotosActivity.kt$PhotosActivity$private fun openCamera(holder: SurfaceHolder)</ID>
-    <ID>CyclomaticComplexMethod:QrDecode.kt$QrSearch$fun scan(frame: Luma): QrResult</ID>
+    <ID>CyclomaticComplexMethod:QrDecode.kt$QrSearch$private fun scanPatches(frame: Luma): QrResult</ID>
+    <ID>CyclomaticComplexMethod:QrDecode.kt$QrSearch$private fun scanWhole( frame: Luma, reader: QrReader, ): QrResult</ID>
     <ID>CyclomaticComplexMethod:QrDecode.kt$QrSearch.Companion$fun candidates(img: Luma): List&lt;Roi&gt;</ID>
     <ID>CyclomaticComplexMethod:SettingsActivity.kt$SettingsActivity$@Composable private fun SettingsScreen()</ID>
     <ID>CyclomaticComplexMethod:Weather.kt$Weather$private fun emojiFor(c: Int, day: Boolean): String</ID>
@@ -41,6 +43,7 @@
     <ID>LongMethod:LocalDropServer.kt$LocalDropServer$private fun handleUpload(input: BufferedInputStream, headers: Map&lt;String, String&gt;, out: OutputStream)</ID>
     <ID>LongMethod:PhotosActivity.kt$PhotosActivity$private fun openCamera(holder: SurfaceHolder)</ID>
     <ID>LongMethod:PhotosActivity.kt$PhotosActivity$private fun showScanner()</ID>
+    <ID>LongMethod:PhotosActivity.kt$PhotosActivity.&lt;no name provided&gt;$override fun onFrame(frame: Luma)</ID>
     <ID>LongMethod:QrDecode.kt$QrSearch.Companion$fun candidates(img: Luma): List&lt;Roi&gt;</ID>
     <ID>LongMethod:SettingsActivity.kt$SettingsActivity$@Composable private fun AlbumRow(url: String, onRemove: () -&gt; Unit)</ID>
     <ID>LongMethod:SettingsActivity.kt$SettingsActivity$@Composable private fun DropCard()</ID>
@@ -54,6 +57,7 @@
     <ID>LoopWithTooManyJumpStatements:GooglePhotosSource.kt$GooglePhotosSource$for</ID>
     <ID>LoopWithTooManyJumpStatements:LocalDropServer.kt$LocalDropServer$while</ID>
     <ID>LoopWithTooManyJumpStatements:LocalDropServer.kt$MultipartParser$while</ID>
+    <ID>LoopWithTooManyJumpStatements:PhotosActivity.kt$PhotosActivity$for</ID>
     <ID>LoopWithTooManyJumpStatements:QrCamera.kt$QrCamera$for</ID>
     <ID>LoopWithTooManyJumpStatements:SlideshowController.kt$SlideshowController$while</ID>
     <ID>MaxLineLength:LocalDropServer.kt$LocalDropServer$if (unsupported == 1) "One file wasn't a supported photo." else "$unsupported files weren't supported photos."</ID>
@@ -64,6 +68,9 @@
     <ID>MaxLineLength:SettingsActivity.kt$SettingsActivity$openGroup == "Look &amp; motion"</ID>
     <ID>NestedBlockDepth:QrCodes.kt$QrCodes$fun bitmap(text: String, size: Int): Bitmap?</ID>
     <ID>NestedBlockDepth:QrDecode.kt$QrSearch.Companion$fun candidates(img: Luma): List&lt;Roi&gt;</ID>
+    <ID>NestedBlockDepth:QrDecode.kt$QrSearch.Companion$fun shrinkBright( src: Luma, r: Int, ): Luma</ID>
+    <ID>NestedBlockDepth:QrGray.kt$QrGray$fun read( img: Luma, inverted: Boolean, det: DetectorResult, ): String?</ID>
+    <ID>NestedBlockDepth:QrGray.kt$QrGray$private fun threshold( g: FloatArray, n: Int, mode: Int, ): BitMatrix</ID>
     <ID>NestedBlockDepth:SlideshowController.kt$SlideshowController$private fun assetItems(): MutableList&lt;Slide&gt;</ID>
     <ID>SwallowedException:AlbumCache.kt$AlbumCache$e: JSONException</ID>
     <ID>SwallowedException:Albums.kt$Albums$e: JSONException</ID>
@@ -81,9 +88,8 @@
     <ID>SwallowedException:QrCamera.kt$QrCamera$e: OutOfMemoryError</ID>
     <ID>SwallowedException:QrCamera.kt$QrCamera.&lt;no name provided&gt;$e: IllegalStateException</ID>
     <ID>SwallowedException:QrCodes.kt$QrCodes$e: Exception</ID>
-    <ID>SwallowedException:QrDecode.kt$QrSearch$e: ChecksumException</ID>
-    <ID>SwallowedException:QrDecode.kt$QrSearch$e: Exception</ID>
-    <ID>SwallowedException:QrDecode.kt$QrSearch$e: FormatException</ID>
+    <ID>SwallowedException:QrDecode.kt$QrSearch$e: ReaderException</ID>
+    <ID>SwallowedException:QrGray.kt$QrGray$e: ReaderException</ID>
     <ID>SwallowedException:Theme.kt$PortalFont$t: Throwable</ID>
     <ID>SwallowedException:Ui.kt$Ui$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AmbientColor.kt$AmbientColor$t: Throwable</ID>
@@ -103,7 +109,7 @@
     <ID>TooGenericExceptionCaught:QrCamera.kt$QrCamera$e: Exception</ID>
     <ID>TooGenericExceptionCaught:QrCamera.kt$QrCamera.&lt;no name provided&gt;$e: Exception</ID>
     <ID>TooGenericExceptionCaught:QrCodes.kt$QrCodes$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:QrDecode.kt$QrSearch$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:QrNative.kt$QrNative.Companion$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:ScreensaverGuard.kt$Screensaver$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SettingsActivity.kt$SettingsActivity$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SlideshowComposeActivity.kt$SlideshowComposeActivity$e: Exception</ID>

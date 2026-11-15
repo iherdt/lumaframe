@@ -13,6 +13,11 @@ ZXing ("Zebra Crossing") — core module
   License:     Apache License, Version 2.0
                https://www.apache.org/licenses/LICENSE-2.0
 
+zxing-cpp — the scanner's QR decoder (native library, io.github.zxing-cpp:android)
+  Homepage:    https://github.com/zxing-cpp/zxing-cpp
+  License:     Apache License, Version 2.0
+               https://www.apache.org/licenses/LICENSE-2.0
+
 AndroidX / Jetpack Compose, the Kotlin standard library, and the Android SDK
 (resolved via Gradle) are likewise licensed under the Apache License, Version 2.0.
 

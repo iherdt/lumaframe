@@ -27,8 +27,10 @@ android {
         applicationId = "com.iherdt.lumaframe"
         minSdk = 28
         targetSdk = 29
-        versionCode = 1
-        versionName = "1.0.0"
+        // The Portal is ARM; leaving out the x86 copies of the native decoder halves its weight.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        versionCode = 2
+        versionName = "1.0.1"
     }
 
     compileOptions {
@@ -121,6 +123,8 @@ detekt {
 
 dependencies {
     implementation(files("libs/zxing-core-3.5.3.jar"))
+    // The scanner's decoder (native). ZXing above stays for QR generation and as the fallback.
+    implementation("io.github.zxing-cpp:android:3.1.1")
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

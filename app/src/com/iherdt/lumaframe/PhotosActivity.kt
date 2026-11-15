@@ -62,7 +62,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Suppress("DEPRECATION")
 class PhotosActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
-    private val search = QrSearch()
+    private val native = QrNative.create()
+    private val search = QrSearch(native)
 
     // Camera2 path
     private var cam2: QrCamera? = null
@@ -77,6 +78,9 @@ class PhotosActivity : Activity() {
     private var statsMs = 0L
     private var statsPasses = 0
     private var dumpLeft = 0
+    private var dumpEvery = 1
+    private var statsTotal = 0
+    private var statsLocated = 0
 
     // Legacy path: one decode at a time, off the camera callback.
     private var legacyWorker: ExecutorService? = null
@@ -173,6 +177,15 @@ class PhotosActivity : Activity() {
         root.setBackgroundColor(Ui.BG)
         setContentView(root)
         dumpLeft = intent?.getIntExtra("dump", 0) ?: 0
+        if (intent?.getBooleanExtra("replay", false) == true) replaySavedFrames()
+        if (dumpLeft == 0 &&
+            getSharedPreferences(ConfigReceiver.PREFS, MODE_PRIVATE).getBoolean(ConfigReceiver.KEY_SCAN_DEBUG, false)
+        ) {
+            // Diagnostics switched on over ADB: a frame about every half second, newest session only.
+            getExternalFilesDir(null)?.listFiles()?.forEach { if (it.name.endsWith(".pgm")) it.delete() }
+            dumpLeft = DEBUG_FRAMES
+            dumpEvery = DEBUG_EVERY
+        }
         // The hand-off QR on this screen points at the LAN server; make sure it is up.
         DropServerService.start(this)
         // The Compose SettingsActivity hands off here purely for the camera scanner /
@@ -535,10 +548,12 @@ class PhotosActivity : Activity() {
                 val r = search.scan(frame)
                 val ms = (System.nanoTime() - t0) / 1_000_000
                 val now = System.currentTimeMillis()
-                if (dumpLeft > 0) {
+                if (dumpLeft > 0 && statsTotal % dumpEvery == 0) {
                     dumpLeft--
                     dumpFrame(frame, 0)
                 }
+                statsTotal++
+                if (r.roi != null && r.text == null) statsLocated++
                 statsFrames++
                 statsMs += ms
                 statsPasses += r.passes
@@ -562,7 +577,7 @@ class PhotosActivity : Activity() {
                         if (scanning) {
                             scanHint?.text =
                                 if (closer) {
-                                    "Almost. Move the code a little closer to the camera and hold it still."
+                                    "Almost. Hold it still, a little closer, or turn the phone's brightness down."
                                 } else {
                                     "Found it, hold still…"
                                 }
@@ -580,9 +595,11 @@ class PhotosActivity : Activity() {
                         TAG,
                         "QR scan: " + statsFrames * 1000 / (now - statsAt) + " frames/s decoded, " +
                             statsMs / Math.max(1, statsFrames) + " ms and " +
-                            statsPasses / Math.max(1, statsFrames) + " passes per frame, no QR decoded yet",
+                            statsPasses / Math.max(1, statsFrames) + " passes per frame, code located in " +
+                            statsLocated + " frames, no QR decoded yet",
                     )
                     statsAt = now
+                    statsLocated = 0
                     statsFrames = 0
                     statsMs = 0
                     statsPasses = 0
@@ -606,6 +623,38 @@ class PhotosActivity : Activity() {
                 }
             }
         }
+
+    /**
+     * Testing aid (`--ez replay true`): run the PGM frames in the app's external `replay` folder
+     * through a fresh search and log what each one yields, so a decoder change can be judged
+     * on the device against frames recorded earlier.
+     */
+    private fun replaySavedFrames() {
+        val dir = File(getExternalFilesDir(null) ?: return, "replay")
+        Thread({
+            val files = dir.listFiles()?.filter { it.name.endsWith(".pgm") }?.sortedBy { it.name } ?: emptyList()
+            val s = QrSearch(QrNative.create())
+            var read = 0
+            var ms = 0L
+            for ((i, f) in files.withIndex()) {
+                val d = f.readBytes()
+                val header = String(d, 0, Math.min(d.size, 20), Charsets.ISO_8859_1).split("\n")
+                val wh = header.getOrNull(1)?.split(" ") ?: continue
+                val w = wh[0].toInt()
+                val h = wh[1].toInt()
+                if (d.size < w * h) continue
+                val frame = Luma(d.copyOfRange(d.size - w * h, d.size), w, h)
+                val t0 = System.nanoTime()
+                val r = s.scan(frame)
+                val took = (System.nanoTime() - t0) / 1_000_000
+                ms += took
+                if (r.text != null) read++
+                val what = if (r.text != null) "READ" else if (r.roi != null) "located" else "nothing"
+                Log.i(TAG, "QR replay $i: $what by '${r.pass}', ${r.passes} passes, $took ms")
+            }
+            Log.i(TAG, "QR replay done: read $read of ${files.size}, ${ms / Math.max(1, files.size)} ms per frame")
+        }, "qr-replay").start()
+    }
 
     /** Testing aid (`--ei dump N`): write frames as PGM into the app's external files folder. */
     private fun dumpFrame(
@@ -1036,10 +1085,12 @@ class PhotosActivity : Activity() {
         private const val ZOOM_VOTES = 3 // consecutive out-of-range readings before the zoom moves
         private const val SEEN_HOLD_MS = 2000L // keep exposure/zoom this long after a code was last seen
         private const val STATS_EVERY_MS = 5000L
+        private const val DEBUG_FRAMES = 60
+        private const val DEBUG_EVERY = 10
         private const val CLOSER_AFTER_MS = 2500L // located this long without a read: ask to come closer
         private const val DEFAULT_SCAN_HINT =
-            "Hold the QR code up to the camera above the screen, about a forearm's length " +
-                "(30 cm) away, and keep it still for a moment."
+            "Hold the QR code up to the camera above the screen, about a hand's length " +
+                "(15 to 20 cm) away, and keep it still. If it does not read, turn your phone's brightness down."
 
         private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT

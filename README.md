@@ -15,10 +15,15 @@ Ishtiaq Hossain, used under the MIT License. The slideshow, the album providers,
 the phone photo drop are that project's work. Lumaframe changes how albums get onto the device:
 
 - **A scanner built for the Portal's camera.** Apps on a Portal+ get one fixed-focus 720p camera
-  that ignores zoom and exposure controls, so the scanner works on frame rate and decoding instead:
-  frames are decoded on a worker thread (about 20 a second instead of 4), a code is located and
-  tracked before it is readable, and small codes are enlarged before decoding. Codes are read from
-  about 2 pixels per module, where the previous scanner needed 3.
+  that ignores zoom and exposure controls, so the scanner works on the picture instead. Frames are
+  decoded on a worker thread, about 15 a second instead of 4, with
+  [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) as the decoder.
+- **Reads Google Photos album codes off a phone screen.** Those codes are light dots on a dark
+  sheet with ring corners, and a phone screen is so much brighter than the room that the dots
+  smear into each other in the camera picture. The scanner shrinks the bright parts back before
+  decoding. On frames recorded from a real Portal+ the previous scanner read none; this one reads
+  most of the frames in which the code is in view. Hold the phone 15 to 20 cm from the camera and
+  turn its brightness down if it does not read.
 - **A viewfinder that tells you what it sees.** A live picture with a box around the code once it
   is found, and hints to hold still or move closer.
 - **Album links from your phone.** The scanner screen shows a QR for your phone. The page it opens

@@ -49,14 +49,26 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   `PhotosActivity` (scanner / manual link entry) and `UploadsActivity` (phone-pushed photos grid),
   and shows the phone-drop QR.
 - **`PhotosActivity`** (Kotlin, Android Views) — camera QR scanner + manual entry (ZXing, vendored jar).
-  The scanner is three pieces: **`QrCamera`** (Camera2 luma stream, frames copied off the camera
-  thread and decoded on a worker), **`QrSearch`** in `QrDecode.kt` (tracked region, code-like patch
-  search, enlargement of small patches, ZXing decode) and **`ViewfinderView`** (live picture with a
-  box around a located code). Portals whose camera needs the legacy API keep the old Camera path,
-  chosen per device by `QrTuning`. Measured on a Portal+: apps get one fixed-focus 720p camera that
-  ignores zoom, exposure compensation and metering regions, and the 12 MP sensor is reserved for
-  preinstalled apps, so do not add camera steering there. `QrSearchTest` holds the decode floor
-  (pixels per module) on synthetic frames; keep it passing.
+  The scanner's pieces: **`QrCamera`** (Camera2 luma stream, frames copied off the camera thread
+  and decoded on a worker), **`QrSearch`** in `QrDecode.kt` (what to look at in each frame),
+  **`QrNative`** (the decoder: zxing-cpp through its Android AAR, whole grey frames in, text and
+  position out) and **`ViewfinderView`** (live picture with a box around a located code). Portals
+  whose camera needs the legacy API keep the old Camera path, chosen per device by `QrTuning`.
+  Measured on a Portal+ with real recorded frames:
+  - Apps get one fixed-focus 720p camera that ignores zoom, exposure compensation and metering
+    regions; the 12 MP sensor is reserved for preinstalled apps. Do not add camera steering.
+  - A phone screen is far brighter than the room the camera exposes for, so the light dots of a
+    Google Photos album code bloom into each other. `QrSearch.scanWhole` therefore reads each
+    frame sharpened with the bright parts shrunk (`shrinkBright`), plus the plain frame, plus one
+    rotating extra look. Java ZXing read none of those frames in any form (its finder cannot see
+    the bloomed ring corners); it remains only as the fallback path `scanPatches` (with `QrGray`)
+    for JVM tests and for a device where the native library does not load.
+  - Change the plan only against recorded frames: `adb shell am broadcast -n
+    com.iherdt.lumaframe/.ConfigReceiver --ez scan_debug true` makes the scanner save about one
+    frame a second to the app's external files folder; copy frames into its `replay` subfolder and
+    start `.PhotosActivity --ez replay true` to run them through the search on the device (results
+    in logcat as `QR replay`). Switch `scan_debug` off afterwards; the frames are pictures of the room.
+  `QrSearchTest` covers the plan and the fallback's decode floor on synthetic frames; keep it passing.
 - **`PhotoProvider` / `PhotoSources`** — provider abstraction + registry. `PhotoSources.matches(url)`
   / `fetch(url)` route a link to the right provider and return a shared `Album` (title + slides).
   Add a new provider by implementing `PhotoProvider` and listing it in `PhotoSources`.

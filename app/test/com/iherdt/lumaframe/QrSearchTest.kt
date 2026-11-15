@@ -220,4 +220,79 @@ class QrSearchTest {
         for (i in back.data.indices) diff += Math.abs((back.data[i].toInt() and 0xFF) - (f.data[i].toInt() and 0xFF))
         assertTrue("mean error ${diff / back.data.size}", diff / back.data.size < 6)
     }
+
+    // ---- the whole-picture plan used with the native decoder ----
+
+    /** White dots on a dark sheet, each [dot] pixels wide on a [pitch] pixel grid. */
+    private fun dots(
+        w: Int,
+        h: Int,
+        pitch: Int,
+        dot: Int,
+    ): Luma {
+        val out = ByteArray(w * h) { 40 }
+        for (y in 0 until h) for (x in 0 until w) {
+            if (x % pitch < dot && y % pitch < dot) out[y * w + x] = 240.toByte()
+        }
+        return Luma(out, w, h)
+    }
+
+    private fun brightShare(img: Luma): Float {
+        var n = 0
+        for (b in img.data) if ((b.toInt() and 0xFF) > 140) n++
+        return n / img.data.size.toFloat()
+    }
+
+    @Test
+    fun shrinkBrightOpensTheGapsBetweenBloomedDots() {
+        // Dots that bloomed to 5 of every 6 pixels: one dark pixel left between neighbours.
+        val bloomed = dots(120, 120, 6, 5)
+        val fixed = QrSearch.shrinkBright(bloomed, 1)
+        // One pixel off every side: 3 of 6 in each direction, a quarter of the area.
+        assertEquals(0.25f, brightShare(fixed), 0.02f)
+        // The flat fast path for one pixel and the general path agree.
+        val twice = QrSearch.shrinkBright(QrSearch.shrinkBright(bloomed, 1), 1)
+        val two = QrSearch.shrinkBright(bloomed, 2)
+        assertTrue(twice.data.contentEquals(two.data))
+    }
+
+    @Test
+    fun wholePicturePlanTriesTheBloomCorrectionAndReportsThePlace() {
+        // A stand-in decoder that only "reads" a picture whose bloom has been shrunk, the way
+        // the real one behaves on a glaring phone screen.
+        val seen = ArrayList<Float>()
+        val reader =
+            QrReader { img ->
+                val share = brightShare(img)
+                seen.add(share)
+                if (img.w == 1280 && share < 0.3f) QrHit("https://example.org/a", Roi(400, 200, 150, 150)) else null
+            }
+        val r = QrSearch(reader).scan(dots(1280, 720, 6, 5))
+        assertEquals("https://example.org/a", r.text)
+        assertEquals("sharp-bloom2", r.pass)
+        assertEquals(400, r.roi!!.left)
+        assertEquals(150, r.roi!!.w)
+    }
+
+    @Test
+    fun wholePicturePlanMapsACloseLookBackToFramePixels() {
+        // Only the doubled close look "finds" something, and only an unreadable code.
+        val reader = QrReader { img -> if (img.w == 2 * QrSearch.NEAR_SIDE) QrHit(null, Roi(100, 60, 200, 200)) else null }
+        val search = QrSearch(reader)
+        var found: QrResult? = null
+        // The close look comes round once in a few frames; take the first frame that has it.
+        for (i in 0 until 5) {
+            val r = search.scan(dots(1280, 720, 6, 2))
+            if (r.roi != null) {
+                found = r
+                break
+            }
+        }
+        val roi = found!!.roi!!
+        assertEquals(null, found.text)
+        // The close look is the middle NEAR_SIDE square, doubled: (100, 60) there is (50, 30) in it.
+        assertEquals((1280 - QrSearch.NEAR_SIDE) / 2 + 50, roi.left)
+        assertEquals((720 - QrSearch.NEAR_SIDE) / 2 + 30, roi.top)
+        assertEquals(100, roi.w)
+    }
 }
