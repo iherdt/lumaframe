@@ -1,8 +1,8 @@
-# Frame — Install & User Guide
+# Lumaframe — Install & User Guide
 
 Turn your **Meta Portal** into a digital photo frame. It can play your **Google Photos** or
 **iCloud** shared albums, and/or photos you **push straight from your phone** over Wi‑Fi — whenever
-it's idle. You install a ready-made `Frame-*.apk` — you don't need to build anything.
+it's idle. You install a ready-made `Lumaframe-*.apk` — you don't need to build anything.
 
 > New here? You'll do three things once: **install** the app, **add your photos** (a shared album,
 > a phone push, or both), and **turn it on as the screensaver**. After that it just runs.
@@ -11,9 +11,11 @@ it's idle. You install a ready-made `Frame-*.apk` — you don't need to build an
 
 ## Get the app
 
-Download the latest **`Frame-vX.Y.Z.apk`** from the project's **Releases** page:
+Download the latest **`Lumaframe-vX.Y.Z.apk`** from the project's **Releases** page:
 
-- **<https://github.com/Ishtiaqhossain/Portal-Frame/releases/latest>**
+- **<https://github.com/iherdt/lumaframe/releases>**
+
+If no release is published yet, build the APK from source (see the README, "For developers").
 
 Grab the `.apk` asset under **Assets** (the `.apk.sha256` file next to it is an optional checksum
 to verify the download). Save it to the computer you'll use in Part 1.
@@ -23,7 +25,7 @@ to verify the download). Save it to the computer you'll use in Part 1.
 ## What you'll need
 
 - A **Meta Portal**, charged and connected to Wi‑Fi.
-- The **`Frame-*.apk`** you downloaded above.
+- The **`Lumaframe-*.apk`** you downloaded above.
 - A **computer** (Mac, Windows, or Linux) and a **USB cable** to connect the Portal — this is
   the one-time step to get the app onto the device. (The Portal has no app store, so apps are
   "sideloaded" from a computer.)
@@ -34,7 +36,7 @@ they need to help with — everything after that happens on the Portal's screen.
 
 ---
 
-## Part 1 — Install Frame on the Portal (one time, from a computer)
+## Part 1 — Install Lumaframe on the Portal (one time, from a computer)
 
 Installing uses a free Google tool called **ADB** (Android Debug Bridge).
 
@@ -55,22 +57,22 @@ Installing uses a free Google tool called **ADB** (Android Debug Bridge).
 3. On the computer, run (use the actual file name you downloaded):
    ```
    adb devices                              # should list your Portal (tap "Allow" on the Portal if prompted)
-   adb install ~/Downloads/Frame-v1.0.0.apk
+   adb install ~/Downloads/Lumaframe-v1.0.0.apk
    ```
-4. When it prints **`Success`**, you're done — a **Frame** icon now appears on the Portal's home
+4. When it prints **`Success`**, you're done — a **Lumaframe** icon now appears on the Portal's home
    screen. You can unplug the USB cable.
 
-> Updating later? Download the newer `Frame-*.apk` from Releases and run
-> `adb install -r ~/Downloads/Frame-vX.Y.Z.apk` (the `-r` keeps your settings and album).
+> Updating later? Download the newer `Lumaframe-*.apk` from Releases and run
+> `adb install -r ~/Downloads/Lumaframe-vX.Y.Z.apk` (the `-r` keeps your settings and album).
 
 ---
 
 ## Part 2 — First-time setup (on the Portal)
 
-Tap the **Frame** icon on the Portal home screen to open the setup screen.
+Tap the **Lumaframe** icon on the Portal home screen to open the setup screen.
 
 ### Step 1 — Add your album
-Frame plays a public **shared album** from either **Google Photos** or **iCloud**. First, create
+Lumaframe plays a public **shared album** from either **Google Photos** or **iCloud**. First, create
 the share link on your phone:
 
 **Google Photos:**
@@ -97,13 +99,13 @@ Once set, the Album card shows the album's **title and a preview of its first ph
 confirm it's the right one.
 
 ### Or — add photos straight from your phone (no album needed)
-You can also push photos onto Frame from **any phone on the same Wi‑Fi**, without a shared album —
+You can also push photos onto Lumaframe from **any phone on the same Wi‑Fi**, without a shared album —
 handy for adding a few photos on the spot:
 
 1. On the Portal's setup screen, find **Add photos from a phone**. It shows a **QR code**.
 2. On your phone, **scan that QR** with the camera app. It opens a simple web page in your browser —
    there's **no app to install**.
-3. Tap **Choose photos**, pick photos from your camera roll, and tap **Add to Frame**.
+3. Tap **Choose photos**, pick photos from your camera roll, and tap **Add to Lumaframe**.
 
 They appear on the frame **right away** and stay in the rotation, alongside any albums. Because it's
 just your phone's browser, it works from an **iPhone or Android**, and **nothing goes to any cloud** —
@@ -113,9 +115,9 @@ scanned the on-screen QR can add photos.
 > **Manage them:** the **Photos from phones** card on the setup screen shows how many you've added;
 > tap **Manage photos** to see them all in a grid and **delete** any (or **Remove all**).
 
-### Step 2 — Turn Frame on as the screensaver
+### Step 2 — Turn Lumaframe on as the screensaver
 1. On the setup screen, tap **Use as screensaver**.
-2. In the list that opens, choose **Frame**.
+2. In the list that opens, choose **Lumaframe**.
 3. Done — your photos will now appear whenever the Portal is idle.
 
 Tap **Done** to leave setup.
@@ -123,48 +125,48 @@ Tap **Done** to leave setup.
 #### Make it stick on Portal / Portal+ (optional, recommended)
 On some Portal models (notably **Portal+**, which has a rotating screen) the built-in launcher
 **resets the screensaver back to its own** whenever the home screen is recreated — for example
-after you **rotate the screen**. If Frame keeps reverting, grant it permission to keep itself set,
+after you **rotate the screen**. If Lumaframe keeps reverting, grant it permission to keep itself set,
 once, over ADB:
 
 ```bash
-adb shell pm grant com.portalhacks.frame android.permission.WRITE_SECURE_SETTINGS
+adb shell pm grant com.iherdt.lumaframe android.permission.WRITE_SECURE_SETTINGS
 ```
 
-Then open Frame and tap **Use as screensaver** again. Frame will now re-assert itself whenever the
+Then open Lumaframe and tap **Use as screensaver** again. Lumaframe will now re-assert itself whenever the
 launcher tries to take the slot back, so it survives rotations and reboots. (Until you grant this,
-Frame falls back to the normal system picker and the launcher may still reset it.)
+Lumaframe falls back to the normal system picker and the launcher may still reset it.)
 
-#### Using Frame with the Immortal launcher
+#### Using Lumaframe with the Immortal launcher
 If you run the [Immortal launcher](https://github.com/starbrightlab/immortal), it has its **own**
 photo-frame screensaver and manages the screensaver slot itself, so a couple of extra steps let
-Frame take over:
+Lumaframe take over:
 
 1. In **Immortal → Settings → Screensaver**, turn **Immortal's screensaver OFF**. (While it's on,
-   Immortal re-shows its own frame and Frame can't win the slot.)
-2. Grant Frame the one-time ADB permission above
-   (`adb shell pm grant com.portalhacks.frame android.permission.WRITE_SECURE_SETTINGS`).
-3. Open Frame and tap **Use as screensaver**.
+   Immortal re-shows its own frame and Lumaframe can't win the slot.)
+2. Grant Lumaframe the one-time ADB permission above
+   (`adb shell pm grant com.iherdt.lumaframe android.permission.WRITE_SECURE_SETTINGS`).
+3. Open Lumaframe and tap **Use as screensaver**.
 
-Frame detects Immortal and shows this reminder on its setup screen. It also handles Immortal's habit
-of switching the system screensaver *off* when its own is disabled — Frame keeps the slot enabled so
+Lumaframe detects Immortal and shows this reminder on its setup screen. It also handles Immortal's habit
+of switching the system screensaver *off* when its own is disabled — Lumaframe keeps the slot enabled so
 your photos still appear when the Portal is idle.
 
 ---
 
-## Part 3 — Using Frame day to day
+## Part 3 — Using Lumaframe day to day
 
-- **It runs automatically.** When the Portal sits idle, Frame fades through your album. Touch the
+- **It runs automatically.** When the Portal sits idle, Lumaframe fades through your album. Touch the
   screen (or talk to the Portal) to go back to normal.
 - **Touch controls while photos are showing:**
   - **Swipe left / right** — next / previous photo
   - **Single tap** — dismiss (wake the Portal)
-  - **Long‑press** — open the Frame setup screen
+  - **Long‑press** — open the Lumaframe setup screen
 - **Add photos anytime.** New photos you add to the shared album (in Google Photos or iCloud) show
   up on the Portal automatically (it re-checks each time it goes idle). Or **push a photo from your
   phone** on the spot — scan the QR under **Add photos from a phone** and pick from your camera roll;
   it appears on the frame right away.
 
-### Settings you can change (in the Frame app)
+### Settings you can change (in the Lumaframe app)
 The setup screen has two sides: **Set up** (screensaver, albums, add photos from a phone) and
 **Customize** — the playback/look options, grouped into collapsible sections (**Playback**, **Look
 & motion**, **Clock & night**, **Extras**). Tap a group to open it. The options include:
@@ -185,7 +187,7 @@ The setup screen has two sides: **Set up** (screensaver, albums, add photos from
 - **Stop one temporarily** — flip an album's **Playing** switch to off. It stays in the list (link
   kept) but its photos are paused; flip it back on anytime.
 - **Remove one** — tap **Remove** next to an album, then **Confirm**. The others keep playing.
-- **Remove all** — remove each album; with none left, Frame falls back to the built‑in samples.
+- **Remove all** — remove each album; with none left, Lumaframe falls back to the built‑in samples.
 
 ---
 
@@ -201,22 +203,22 @@ The setup screen has two sides: **Set up** (screensaver, albums, add photos from
 - **The QR won't scan.** The Portal's camera is fixed‑focus and wide — hold the phone **~0.5 m
   away**, **full screen brightness**, and let the QR **fill the on‑screen box**. Still no luck?
   Paste the link into the field on the same **Add album** screen instead.
-- **"Frame" isn't in the screensaver list.** Make sure the app installed (the **Frame** icon is on
+- **"Lumaframe" isn't in the screensaver list.** Make sure the app installed (the **Lumaframe** icon is on
   the home screen), then tap **Use as screensaver** again.
-- **Frame keeps reverting to the Portal's own screensaver (e.g. after rotating the screen).** The
+- **Lumaframe keeps reverting to the Portal's own screensaver (e.g. after rotating the screen).** The
   launcher reclaims the screensaver slot. Grant the one-time permission in
   [Make it stick on Portal / Portal+](#make-it-stick-on-portal--portal-optional-recommended) above.
 - **Adding photos from a phone doesn't work.** Make sure the **phone and the Portal are on the same
   Wi‑Fi** (and the network allows devices to talk to each other — some guest/public networks block
   this). Re-scan the QR from **Add photos from a phone** each session, and add photos in the browser
   page it opens (don't bookmark it — the link is single-use and only valid while that QR is shown).
-- **Videos are skipped.** Frame shows photos only; videos in the album are ignored.
-- **Only sample photos show.** That means no album is set (or it couldn't be reached) — open Frame
+- **Videos are skipped.** Lumaframe shows photos only; videos in the album are ignored.
+- **Only sample photos show.** That means no album is set (or it couldn't be reached) — open Lumaframe
   and add your album again.
 
 ---
 
-*Frame is open‑source software, provided as‑is. It reads only the public shared album you point it
+*Lumaframe is open‑source software, provided as‑is. It reads only the public shared album you point it
 at, plus any photos you push to it directly from a phone on your own Wi‑Fi, and shows them on the
 Portal — nothing is uploaded to any cloud or outside server. See the project README and SECURITY.md
 for technical details.*

@@ -10,7 +10,7 @@ ANDROID_JAR="$SDK/platforms/android-36/android.jar"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP="$ROOT/app"
 BUILD="$ROOT/build"
-PKG_PATH="com/portalhacks/frame"
+PKG_PATH="com/iherdt/lumaframe"
 LIBS="$APP/libs"
 ZXING="$LIBS/zxing-core-3.5.3.jar"   # pure-Java QR decoder, vendored (no Gradle here)
 
@@ -75,8 +75,8 @@ fi
 echo "==> apksigner sign"
 "$APKSIGNER" sign \
     --ks "$KS" --ks-pass pass:android --key-pass pass:android \
-    --out "$BUILD/PortalFrame.apk" \
+    --out "$BUILD/Lumaframe.apk" \
     "$BUILD/aligned.apk"
 
-"$APKSIGNER" verify "$BUILD/PortalFrame.apk" && echo "==> signature OK"
-echo "==> built: $BUILD/PortalFrame.apk"
+"$APKSIGNER" verify "$BUILD/Lumaframe.apk" && echo "==> signature OK"
+echo "==> built: $BUILD/Lumaframe.apk"

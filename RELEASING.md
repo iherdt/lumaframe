@@ -1,4 +1,4 @@
-# Releasing Frame
+# Releasing Lumaframe
 
 How to cut a signed release APK and publish it on GitHub. End users install that APK via the
 [Install & User Guide](INSTALL.md).
@@ -10,23 +10,23 @@ ship signed updates that install over previous versions.
 
 ```bash
 keytool -genkeypair -v \
-  -keystore frame-release.jks \
-  -alias frame \
+  -keystore lumaframe-release.jks \
+  -alias lumaframe \
   -keyalg RSA -keysize 2048 -validity 10000 \
-  -dname "CN=Frame, O=PortalHacks, C=US"
+  -dname "CN=Lumaframe, O=Lumaframe, C=US"
 # you'll be prompted for the keystore + key passwords
 ```
 
-Do **not** commit `frame-release.jks` — `*.jks`/`*.keystore`/`keystore.properties` are git-ignored.
+Do **not** commit `lumaframe-release.jks` — `*.jks`/`*.keystore`/`keystore.properties` are git-ignored.
 
 ## 2. Build a signed release locally (optional)
 
 Create `keystore.properties` in the repo root (git-ignored):
 
 ```properties
-storeFile=/absolute/path/to/frame-release.jks
+storeFile=/absolute/path/to/lumaframe-release.jks
 storePassword=your-keystore-password
-keyAlias=frame
+keyAlias=lumaframe
 keyPassword=your-key-password
 ```
 
@@ -38,8 +38,8 @@ Then:
 ```
 
 The same values can be supplied as environment variables instead of the file (these take
-precedence, and are what CI uses): `FRAME_KEYSTORE` (path), `FRAME_KEYSTORE_PASSWORD`,
-`FRAME_KEY_ALIAS`, `FRAME_KEY_PASSWORD`. If no keystore is configured, `assembleRelease` still
+precedence, and are what CI uses): `LUMAFRAME_KEYSTORE` (path), `LUMAFRAME_KEYSTORE_PASSWORD`,
+`LUMAFRAME_KEY_ALIAS`, `LUMAFRAME_KEY_PASSWORD`. If no keystore is configured, `assembleRelease` still
 builds but the APK is **unsigned**.
 
 Verify a build is signed:
@@ -56,16 +56,16 @@ pushes. Add these **repository secrets** (Settings → Secrets and variables →
 
 | Secret | Value |
 | --- | --- |
-| `FRAME_KEYSTORE_BASE64` | the keystore file, base64-encoded |
-| `FRAME_KEYSTORE_PASSWORD` | keystore password |
-| `FRAME_KEY_ALIAS` | key alias (e.g. `frame`) |
-| `FRAME_KEY_PASSWORD` | key password |
+| `LUMAFRAME_KEYSTORE_BASE64` | the keystore file, base64-encoded |
+| `LUMAFRAME_KEYSTORE_PASSWORD` | keystore password |
+| `LUMAFRAME_KEY_ALIAS` | key alias (e.g. `frame`) |
+| `LUMAFRAME_KEY_PASSWORD` | key password |
 
 Encode the keystore for the first secret:
 
 ```bash
-base64 -i frame-release.jks | pbcopy      # macOS (clipboard)
-# base64 -w0 frame-release.jks            # Linux (stdout)
+base64 -i lumaframe-release.jks | pbcopy      # macOS (clipboard)
+# base64 -w0 lumaframe-release.jks            # Linux (stdout)
 ```
 
 ## 4. Cut a release
@@ -79,7 +79,7 @@ base64 -i frame-release.jks | pbcopy      # macOS (clipboard)
    git push origin v1.1.0
    ```
 3. The **Release APK** workflow builds the signed APK and publishes a GitHub Release with
-   `Frame-v1.1.0.apk` (and its `.sha256`) attached, plus auto-generated notes.
+   `Lumaframe-v1.1.0.apk` (and its `.sha256`) attached, plus auto-generated notes.
 
 You can also trigger the workflow manually (Actions → *Release APK* → *Run workflow*); manual
 runs build and upload a workflow artifact but only **tag pushes** publish a public Release.

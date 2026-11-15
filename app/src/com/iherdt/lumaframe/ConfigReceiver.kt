@@ -1,0 +1,192 @@
+package com.iherdt.lumaframe
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+
+/**
+ * Lets shared albums (Google Photos or iCloud) be managed over ADB without rebuilding:
+ *
+ *   # add an album (repeat to add several)
+ *   adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver \
+ *       --es url "https://photos.app.goo.gl/XXXXXXXX"
+ *   adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver \
+ *       --es url "https://www.icloud.com/sharedalbum/#XXXXXXXX"
+ *
+ *   # remove one album / clear all (revert to bundled samples)
+ *   adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es remove_url "https://…"
+ *   adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es url ""
+ */
+class ConfigReceiver : BroadcastReceiver() {
+
+    override fun onReceive(ctx: Context, intent: Intent?) {
+        if (intent == null) {
+            return
+        }
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        // This receiver is exported (so albums can be managed over ADB), which means any
+        // installed app could broadcast to it. `url` adds a recognised shared-album link
+        // (empty clears ALL albums); `remove_url` removes one. Unrecognised links are
+        // ignored so a hostile broadcast can't point the frame at an arbitrary URL.
+        if (intent.hasExtra("url")) {
+            val url = intent.getStringExtra("url")?.trim() ?: ""
+            when {
+                url.isEmpty() -> { Albums.clear(prefs); Log.i("Lumaframe", "albums cleared") }
+                isAlbumUrl(url) -> if (Albums.add(prefs, url)) Log.i("Lumaframe", "album added: '$url'")
+                else -> Log.w("Lumaframe", "ignoring unrecognised album_url")
+            }
+        }
+        // Sticky-note text shown on the frame. Set with --es note "Buy milk"; clear with an
+        // empty string. (Prototype: rendered as a post-it overlay by SlideshowController.)
+        if (intent.hasExtra("note")) {
+            val note = intent.getStringExtra("note") ?: ""
+            prefs.edit().putString(KEY_NOTE, note).apply()
+            Log.i("Lumaframe", "note set (${note.length} chars)")
+        }
+        // Pick the overlay clock style over ADB (also selectable in Settings): --es clock_face big
+        if (intent.hasExtra("clock_face")) {
+            val face = intent.getStringExtra("clock_face")?.trim().orEmpty()
+            if (CLOCK_FACES.any { it.first == face }) {
+                prefs.edit().putString(KEY_CLOCK_FACE, face).apply()
+                Log.i("Lumaframe", "clock face set to: $face")
+            }
+        }
+        if (intent.hasExtra("remove_url")) {
+            val url = intent.getStringExtra("remove_url")?.trim() ?: ""
+            if (url.isNotEmpty()) {
+                Albums.remove(prefs, url)
+                Log.i("Lumaframe", "album removed: '$url'")
+            }
+        }
+        for (pair in arrayOf("enable_url" to true, "disable_url" to false)) {
+            if (intent.hasExtra(pair.first)) {
+                val url = intent.getStringExtra(pair.first)?.trim() ?: ""
+                if (url.isNotEmpty()) {
+                    Albums.setEnabled(prefs, url, pair.second)
+                    Log.i("Lumaframe", "album ${if (pair.second) "resumed" else "stopped"}: '$url'")
+                }
+            }
+        }
+
+        // Toggle the screensaver guard over ADB (keeps Lumaframe as the dream even when the
+        // launcher reclaims the slot on rotation). Needs WRITE_SECURE_SETTINGS granted:
+        //   adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --ez guard true
+        if (intent.hasExtra("guard")) {
+            val on = intent.getBooleanExtra("guard", true)
+            prefs.edit().putBoolean(KEY_GUARD, on).apply()
+            if (on) {
+                Screensaver.claim(ctx)
+                ScreensaverGuardService.start(ctx)
+                Log.i("Lumaframe", "screensaver guard enabled")
+            } else {
+                ScreensaverGuardService.stop(ctx)
+                Log.i("Lumaframe", "screensaver guard disabled")
+            }
+        }
+
+        val ed = prefs.edit()
+        var any = false
+        for (e in BOOL_EXTRAS) {
+            if (intent.hasExtra(e[0])) {
+                val value = intent.getBooleanExtra(e[0], true)
+                ed.putBoolean(e[1], value)
+                Log.i("Lumaframe", "${e[1]} set to: $value")
+                any = true
+            }
+        }
+        if (any) {
+            ed.apply()
+        }
+    }
+
+    companion object {
+        const val PREFS = "lumaframe"
+        const val KEY_ALBUM = "album_url" // legacy single album (migrated into KEY_ALBUMS)
+        const val KEY_ALBUMS = "album_urls" // JSON array of configured album URLs
+        const val KEY_ALBUMS_DISABLED = "album_urls_disabled" // JSON array of stopped album URLs
+        const val KEY_GUARD = "screensaver_guard" // boolean: keep re-asserting Lumaframe as the dream
+        const val KEY_NOTES = "sticky_notes" // master switch for the whole sticky-note + fortune overlay
+        const val KEY_DROP_TOKEN = "drop_token" // secret gating the LAN photo-drop server (in its QR)
+        const val KEY_NOTE = "note" // sticky-note text shown on the frame ("" = hidden)
+        const val KEY_NOTE_DX = "note_dx" // note position (fraction of screen W) from its top-right anchor
+        const val KEY_NOTE_DY = "note_dy" // note position (fraction of screen H) from its top-right anchor
+        const val KEY_FORTUNE = "fortune" // when no manual note is set, show a fetched wisdom line
+        const val DEFAULT_FORTUNE = true
+        const val DEFAULT_NOTES = false // sticky-note/fortune overlay is off unless the user opts in
+
+        // Slideshow settings (written by PhotosActivity, read by SlideshowController).
+        const val KEY_DELAY_MS = "delay_ms"     // ms each photo is held
+        const val KEY_SHUFFLE = "shuffle"       // boolean: random order
+        const val KEY_FADE_MS = "fade_ms"       // ms auto crossfade duration
+        const val KEY_PAIRS = "pairs"           // boolean: pair two photos to fill the screen
+        const val KEY_KEN_BURNS = "ken_burns"   // boolean: cinematic pan/zoom
+        const val KEY_CLOCK = "clock"           // boolean: clock + weather overlay
+        const val KEY_CLOCK_FACE = "clock_face" // which overlay clock style to draw (see CLOCK_FACES)
+        const val DEFAULT_CLOCK_FACE = "classic"
+        const val KEY_CLOCK_LOW_LIGHT = "clock_low_light" // boolean: clock-only in low light
+        const val KEY_NIGHT = "night"           // boolean: warm night dimming
+        const val KEY_ON_THIS_DAY = "on_this_day" // boolean: surface memories
+        const val KEY_CAPTIONS = "captions"     // boolean: photo date captions
+        const val KEY_FACE = "face_framing"     // boolean: face-aware Ken Burns target
+        const val KEY_AMBIENT = "ambient_color" // boolean: per-photo color glow
+        const val KEY_ENHANCE = "auto_enhance"  // boolean: on-device auto-levels + vibrance
+        const val KEY_ZOOM_FILL = "zoom_fill"   // boolean: zoom-crop SINGLE photos to fill (vs whole
+                                                // photo over a blurred fill). Pairs always fill.
+        // Clock widget transform (set by long-press-drag/pinch on the screensaver). dx/dy are the
+        // translation from the default bottom-left anchor as a fraction of screen W/H; scale is a
+        // size multiplier. Floats.
+        const val KEY_CLOCK_DX = "clock_dx"
+        const val KEY_CLOCK_DY = "clock_dy"
+        const val KEY_CLOCK_SCALE = "clock_scale"
+        const val DEFAULT_DELAY_MS = 6000L
+        const val DEFAULT_FADE_MS = 1200L
+        const val DEFAULT_PAIRS = false
+        const val DEFAULT_KEN_BURNS = true
+        const val DEFAULT_CLOCK = true
+        const val DEFAULT_CLOCK_LOW_LIGHT = true
+        const val DEFAULT_NIGHT = true
+        const val DEFAULT_ON_THIS_DAY = true
+        const val DEFAULT_CAPTIONS = true
+        const val DEFAULT_FACE = true
+        const val DEFAULT_AMBIENT = true
+        const val DEFAULT_ENHANCE = false
+        const val DEFAULT_ZOOM_FILL = false // default: whole photo over a blurred fill (no zoom)
+        const val DEFAULT_CLOCK_DX = 0f
+        const val DEFAULT_CLOCK_DY = 0f
+        const val DEFAULT_CLOCK_SCALE = 1f
+
+        // ADB-settable boolean extras (extra name -> pref key) for quick testing, e.g.
+        //   adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --ez ken_burns false
+        private val BOOL_EXTRAS = arrayOf(
+            arrayOf("shuffle", KEY_SHUFFLE), arrayOf("pairs", KEY_PAIRS), arrayOf("ken_burns", KEY_KEN_BURNS),
+            arrayOf("clock", KEY_CLOCK), arrayOf("clock_low_light", KEY_CLOCK_LOW_LIGHT),
+            arrayOf("night", KEY_NIGHT), arrayOf("on_this_day", KEY_ON_THIS_DAY),
+            arrayOf("captions", KEY_CAPTIONS), arrayOf("face_framing", KEY_FACE), arrayOf("ambient_color", KEY_AMBIENT),
+            arrayOf("auto_enhance", KEY_ENHANCE), arrayOf("zoom_fill", KEY_ZOOM_FILL),
+            arrayOf("fortune", KEY_FORTUNE), arrayOf("sticky_notes", KEY_NOTES),
+        )
+
+        // Per-album photo caches are managed by AlbumCache (keyed by album URL).
+
+        // Overlay clock styles (id -> display name), in cycle order. Rendered by
+        // SlideshowController.applyClockFace; picked in Settings → Clock & night.
+        val CLOCK_FACES = listOf(
+            "classic" to "Classic",
+            "minimal" to "Minimal",
+            "big" to "Big",
+            "modern" to "Modern",
+            "flip" to "Flip clock",
+            "nixie" to "Nixie tube",
+            "analog" to "Analog",
+        )
+
+        /** Display name for a clock-face id (falls back to Classic for anything unknown). */
+        fun clockFaceName(id: String?): String =
+            CLOCK_FACES.firstOrNull { it.first == id }?.second ?: CLOCK_FACES.first().second
+
+        /** True for a recognised shared-album HTTPS link (Google Photos or iCloud). */
+        fun isAlbumUrl(s: String?): Boolean = PhotoSources.matches(s)
+    }
+}

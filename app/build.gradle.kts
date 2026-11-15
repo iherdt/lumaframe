@@ -20,15 +20,15 @@ fun releaseSecret(env: String, prop: String): String? =
     System.getenv(env) ?: keystoreProps.getProperty(prop)
 
 android {
-    namespace = "com.portalhacks.frame"
+    namespace = "com.iherdt.lumaframe"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.portalhacks.frame"
+        applicationId = "com.iherdt.lumaframe"
         minSdk = 28
         targetSdk = 29
-        versionCode = 1401
-        versionName = "1.2.0-ih1"
+        versionCode = 1
+        versionName = "1.0.0"
     }
 
     compileOptions {
@@ -56,19 +56,19 @@ android {
 
     signingConfigs {
         create("release") {
-            val ksPath = releaseSecret("FRAME_KEYSTORE", "storeFile")
+            val ksPath = releaseSecret("LUMAFRAME_KEYSTORE", "storeFile")
             if (ksPath != null && file(ksPath).exists()) {
                 storeFile = file(ksPath)
-                storePassword = releaseSecret("FRAME_KEYSTORE_PASSWORD", "storePassword")
-                keyAlias = releaseSecret("FRAME_KEY_ALIAS", "keyAlias")
-                keyPassword = releaseSecret("FRAME_KEY_PASSWORD", "keyPassword")
+                storePassword = releaseSecret("LUMAFRAME_KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = releaseSecret("LUMAFRAME_KEY_ALIAS", "keyAlias")
+                keyPassword = releaseSecret("LUMAFRAME_KEY_PASSWORD", "keyPassword")
             }
         }
     }
 
     buildTypes {
         // The debug build installs next to a release build (own id), so a change can be tried
-        // on a Portal without removing the installed Frame.
+        // on a Portal without removing the installed Lumaframe.
         getByName("debug") {
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"

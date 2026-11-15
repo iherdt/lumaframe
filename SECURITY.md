@@ -1,6 +1,6 @@
 # Security Policy
 
-Frame is a sideloaded hobby app for the Meta Portal. It stores no accounts or credentials,
+Lumaframe is a sideloaded hobby app for the Meta Portal. It stores no accounts or credentials,
 and its only inbound surface is an opt-in **local-network photo-drop server** (see below) used to
 push photos onto the frame from a phone on the same Wi-Fi. Here's the trust model and how to
 report issues.
@@ -58,7 +58,7 @@ project — but reports are appreciated and will be looked at.
 
 - **Permissions.** `INTERNET`, `ACCESS_NETWORK_STATE`, `CAMERA` (on-device QR scan, optional),
   `FOREGROUND_SERVICE` (the always-on drop server), `RECEIVE_BOOT_COMPLETED` (restart it after a
-  reboot), and `WRITE_SECURE_SETTINGS` (granted once over ADB to keep Frame as the screensaver).
+  reboot), and `WRITE_SECURE_SETTINGS` (granted once over ADB to keep Lumaframe as the screensaver).
   `android:allowBackup="false"`.
 
 ## Supported versions

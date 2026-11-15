@@ -7,48 +7,54 @@
     <ID>ComplexCondition:LocalDropServer.kt$LocalDropServer$u(0) == 0x52 &amp;&amp; u(1) == 0x49 &amp;&amp; u(2) == 0x46 &amp;&amp; u(3) == 0x46 &amp;&amp; u(8) == 0x57 &amp;&amp; u(9) == 0x45 &amp;&amp; u(10) == 0x42 &amp;&amp; u(11) == 0x50</ID>
     <ID>ComplexCondition:LocalDropServer.kt$LocalDropServer$u(0) == 0x89 &amp;&amp; u(1) == 0x50 &amp;&amp; u(2) == 0x4E &amp;&amp; u(3) == 0x47</ID>
     <ID>ComplexCondition:LocalDropServer.kt$LocalDropServer$u(4) == 0x66 &amp;&amp; u(5) == 0x74 &amp;&amp; u(6) == 0x79 &amp;&amp; u(7) == 0x70</ID>
+    <ID>ComplexCondition:QrDecode.kt$QrSearch.Companion$r.left == 0 &amp;&amp; r.top == 0 &amp;&amp; r.w == src.w &amp;&amp; r.h == src.h</ID>
     <ID>ComplexCondition:SlideshowController.kt$SlideshowController$!pairs || items.size &lt; 2 || start &lt; 0 || start &gt;= items.size</ID>
     <ID>ComplexCondition:SlideshowController.kt$SlideshowController$lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")</ID>
     <ID>ComplexCondition:SlideshowController.kt$SlideshowController.&lt;no name provided&gt;$!moved &amp;&amp; !pinching &amp;&amp; abs(e.x - downX) &lt; TAP_SLOP &amp;&amp; abs(e.y - downY) &lt; TAP_SLOP &amp;&amp; dt &lt; TAP_TIMEOUT_MS</ID>
     <ID>ComplexCondition:SlideshowController.kt$SlideshowController.&lt;no name provided&gt;$abs(dx) &lt; TAP_SLOP &amp;&amp; abs(dy) &lt; TAP_SLOP &amp;&amp; dt &lt; TAP_TIMEOUT_MS &amp;&amp; onDismiss != null</ID>
+    <ID>ComplexCondition:ViewfinderView.kt$ViewfinderView$roi == null || frameW &lt;= 0 || frameH &lt;= 0 || (roi.w &gt;= frameW &amp;&amp; roi.h &gt;= frameH)</ID>
     <ID>CyclomaticComplexMethod:ApplePhotosSource.kt$ApplePhotosSource$private fun parseAlbum(base: String, ws: JSONObject): Album</ID>
     <ID>CyclomaticComplexMethod:ConfigReceiver.kt$ConfigReceiver$override fun onReceive(ctx: Context, intent: Intent?)</ID>
     <ID>CyclomaticComplexMethod:FaceFocus.kt$FaceFocus$@JvmStatic fun find(src: Bitmap?): FloatArray?</ID>
     <ID>CyclomaticComplexMethod:GooglePhotosSource.kt$GooglePhotosSource$private fun parse(html: String): List&lt;Slide&gt;</ID>
+    <ID>CyclomaticComplexMethod:LocalDropServer.kt$LocalDropServer$private fun handle(sock: Socket)</ID>
+    <ID>CyclomaticComplexMethod:LocalDropServer.kt$LocalDropServer$private fun handleAlbum( input: BufferedInputStream, headers: Map&lt;String, String&gt;, out: OutputStream, )</ID>
     <ID>CyclomaticComplexMethod:LocalDropServer.kt$LocalDropServer$private fun handleUpload(input: BufferedInputStream, headers: Map&lt;String, String&gt;, out: OutputStream)</ID>
     <ID>CyclomaticComplexMethod:LocalDropServer.kt$LocalDropServer$private fun imageExt(data: ByteArray, filename: String, contentType: String): String?</ID>
     <ID>CyclomaticComplexMethod:LocalDropServer.kt$LocalDropServer$private fun readHead(input: BufferedInputStream): ByteArray?</ID>
     <ID>CyclomaticComplexMethod:PhotosActivity.kt$PhotosActivity$private fun openCamera(holder: SurfaceHolder)</ID>
+    <ID>CyclomaticComplexMethod:QrDecode.kt$QrSearch$fun scan(frame: Luma): QrResult</ID>
+    <ID>CyclomaticComplexMethod:QrDecode.kt$QrSearch.Companion$fun candidates(img: Luma): List&lt;Roi&gt;</ID>
     <ID>CyclomaticComplexMethod:SettingsActivity.kt$SettingsActivity$@Composable private fun SettingsScreen()</ID>
     <ID>CyclomaticComplexMethod:Weather.kt$Weather$private fun emojiFor(c: Int, day: Boolean): String</ID>
     <ID>EmptyFunctionBlock:PhotosActivity.kt$PhotosActivity.&lt;no name provided&gt;${ }</ID>
-    <ID>EmptyFunctionBlock:PhotosActivity.kt$PhotosActivity.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:SlideshowComposeActivity.kt$SlideshowComposeActivity.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:SlideshowController.kt$SlideshowController.StickyNoteBg${}</ID>
     <ID>FunctionParameterNaming:ImageLoader.kt$ImageLoader.Companion$`in`: IntArray</ID>
     <ID>ImplicitDefaultLocale:DropAuth.kt$DropAuth$String.format("%02x", b.toInt() and 0xff)</ID>
     <ID>ImplicitDefaultLocale:ImageLoader.kt$ImageLoader.Companion$String.format("%032x", BigInteger(1, d))</ID>
+    <ID>LargeClass:PhotosActivity.kt$PhotosActivity : Activity</ID>
     <ID>LargeClass:SettingsActivity.kt$SettingsActivity : ComponentActivity</ID>
     <ID>LargeClass:SlideshowController.kt$SlideshowController</ID>
     <ID>LongMethod:ConfigReceiver.kt$ConfigReceiver$override fun onReceive(ctx: Context, intent: Intent?)</ID>
+    <ID>LongMethod:LocalDropServer.kt$LocalDropServer$private fun handleAlbum( input: BufferedInputStream, headers: Map&lt;String, String&gt;, out: OutputStream, )</ID>
     <ID>LongMethod:LocalDropServer.kt$LocalDropServer$private fun handleUpload(input: BufferedInputStream, headers: Map&lt;String, String&gt;, out: OutputStream)</ID>
     <ID>LongMethod:PhotosActivity.kt$PhotosActivity$private fun openCamera(holder: SurfaceHolder)</ID>
     <ID>LongMethod:PhotosActivity.kt$PhotosActivity$private fun showScanner()</ID>
+    <ID>LongMethod:QrDecode.kt$QrSearch.Companion$fun candidates(img: Luma): List&lt;Roi&gt;</ID>
     <ID>LongMethod:SettingsActivity.kt$SettingsActivity$@Composable private fun AlbumRow(url: String, onRemove: () -&gt; Unit)</ID>
     <ID>LongMethod:SettingsActivity.kt$SettingsActivity$@Composable private fun DropCard()</ID>
     <ID>LongMethod:SettingsActivity.kt$SettingsActivity$@Composable private fun SettingsScreen()</ID>
     <ID>LongMethod:SlideshowController.kt$SlideshowController.&lt;no name provided&gt;$override fun onTouch(v: View, e: MotionEvent): Boolean</ID>
     <ID>LongMethod:UploadsActivity.kt$UploadsActivity$@Composable private fun UploadsScreen()</ID>
-    <ID>LongParameterList:ImageLoader.kt$ImageLoader$( id1: String, id2: String, reqW: Int, reqH: Int, stackVertical: Boolean, cb: Callback )</ID>
     <ID>LongParameterList:ImageLoader.kt$ImageLoader.Companion$( c: Canvas, p: Paint, src: Bitmap?, left: Int, top: Int, w: Int, h: Int, zoomFill: Boolean )</ID>
-    <ID>LongParameterList:LocalDropServer.kt$LocalDropServer$(out: OutputStream, status: Int, added: Int, rejected: Int, reason: String, message: String)</ID>
-    <ID>LongParameterList:PhotosActivity.kt$PhotosActivity$( data: ByteArray, w: Int, h: Int, left: Int, top: Int, rw: Int, rh: Int, mirror: Boolean, )</ID>
     <ID>LoopWithTooManyJumpStatements:AlbumCache.kt$AlbumCache$for</ID>
     <ID>LoopWithTooManyJumpStatements:ApplePhotosSource.kt$ApplePhotosSource$for</ID>
     <ID>LoopWithTooManyJumpStatements:ApplePhotosSource.kt$ApplePhotosSource$while</ID>
     <ID>LoopWithTooManyJumpStatements:GooglePhotosSource.kt$GooglePhotosSource$for</ID>
     <ID>LoopWithTooManyJumpStatements:LocalDropServer.kt$LocalDropServer$while</ID>
     <ID>LoopWithTooManyJumpStatements:LocalDropServer.kt$MultipartParser$while</ID>
+    <ID>LoopWithTooManyJumpStatements:QrCamera.kt$QrCamera$for</ID>
     <ID>LoopWithTooManyJumpStatements:SlideshowController.kt$SlideshowController$while</ID>
     <ID>MaxLineLength:LocalDropServer.kt$LocalDropServer$if (unsupported == 1) "One file wasn't a supported photo." else "$unsupported files weren't supported photos."</ID>
     <ID>MaxLineLength:LocalDropServer.kt$LocalDropServer$private</ID>
@@ -57,6 +63,7 @@
     <ID>MaxLineLength:SettingsActivity.kt$SettingsActivity$openGroup == "Clock &amp; night"</ID>
     <ID>MaxLineLength:SettingsActivity.kt$SettingsActivity$openGroup == "Look &amp; motion"</ID>
     <ID>NestedBlockDepth:QrCodes.kt$QrCodes$fun bitmap(text: String, size: Int): Bitmap?</ID>
+    <ID>NestedBlockDepth:QrDecode.kt$QrSearch.Companion$fun candidates(img: Luma): List&lt;Roi&gt;</ID>
     <ID>NestedBlockDepth:SlideshowController.kt$SlideshowController$private fun assetItems(): MutableList&lt;Slide&gt;</ID>
     <ID>SwallowedException:AlbumCache.kt$AlbumCache$e: JSONException</ID>
     <ID>SwallowedException:Albums.kt$Albums$e: JSONException</ID>
@@ -70,8 +77,13 @@
     <ID>SwallowedException:LocalDropServer.kt$LocalDropServer$e: IOException</ID>
     <ID>SwallowedException:PhotoEnhance.kt$PhotoEnhance$t: Throwable</ID>
     <ID>SwallowedException:PhotosActivity.kt$PhotosActivity$e: Exception</ID>
-    <ID>SwallowedException:PhotosActivity.kt$PhotosActivity$notFound: Exception</ID>
+    <ID>SwallowedException:QrCamera.kt$QrCamera$e: Exception</ID>
+    <ID>SwallowedException:QrCamera.kt$QrCamera$e: OutOfMemoryError</ID>
+    <ID>SwallowedException:QrCamera.kt$QrCamera.&lt;no name provided&gt;$e: IllegalStateException</ID>
     <ID>SwallowedException:QrCodes.kt$QrCodes$e: Exception</ID>
+    <ID>SwallowedException:QrDecode.kt$QrSearch$e: ChecksumException</ID>
+    <ID>SwallowedException:QrDecode.kt$QrSearch$e: Exception</ID>
+    <ID>SwallowedException:QrDecode.kt$QrSearch$e: FormatException</ID>
     <ID>SwallowedException:Theme.kt$PortalFont$t: Throwable</ID>
     <ID>SwallowedException:Ui.kt$Ui$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AmbientColor.kt$AmbientColor$t: Throwable</ID>
@@ -88,8 +100,10 @@
     <ID>TooGenericExceptionCaught:LocalUploads.kt$LocalUploads$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PhotoEnhance.kt$PhotoEnhance$t: Throwable</ID>
     <ID>TooGenericExceptionCaught:PhotosActivity.kt$PhotosActivity$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:PhotosActivity.kt$PhotosActivity$notFound: Exception</ID>
+    <ID>TooGenericExceptionCaught:QrCamera.kt$QrCamera$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:QrCamera.kt$QrCamera.&lt;no name provided&gt;$e: Exception</ID>
     <ID>TooGenericExceptionCaught:QrCodes.kt$QrCodes$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:QrDecode.kt$QrSearch$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ScreensaverGuard.kt$Screensaver$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SettingsActivity.kt$SettingsActivity$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SlideshowComposeActivity.kt$SlideshowComposeActivity$e: Exception</ID>

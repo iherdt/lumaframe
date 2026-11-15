@@ -2,10 +2,10 @@ name: Release APK
 
 # Build a signed release APK and attach it to a GitHub Release whenever a
 # version tag (e.g. v1.0.0) is pushed. Requires these repository secrets:
-#   FRAME_KEYSTORE_BASE64    - base64 of your release keystore (.jks)
-#   FRAME_KEYSTORE_PASSWORD  - keystore password
-#   FRAME_KEY_ALIAS          - key alias
-#   FRAME_KEY_PASSWORD       - key password
+#   LUMAFRAME_KEYSTORE_BASE64    - base64 of your release keystore (.jks)
+#   LUMAFRAME_KEYSTORE_PASSWORD  - keystore password
+#   LUMAFRAME_KEY_ALIAS          - key alias
+#   LUMAFRAME_KEY_PASSWORD       - key password
 # See RELEASING.md for how to generate the keystore and set these.
 
 on:
@@ -35,14 +35,14 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Decode release keystore
-        run: echo "${{ secrets.FRAME_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/release.jks"
+        run: echo "${{ secrets.LUMAFRAME_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/release.jks"
 
       - name: Build signed release APK
         env:
-          FRAME_KEYSTORE: ${{ runner.temp }}/release.jks
-          FRAME_KEYSTORE_PASSWORD: ${{ secrets.FRAME_KEYSTORE_PASSWORD }}
-          FRAME_KEY_ALIAS: ${{ secrets.FRAME_KEY_ALIAS }}
-          FRAME_KEY_PASSWORD: ${{ secrets.FRAME_KEY_PASSWORD }}
+          LUMAFRAME_KEYSTORE: ${{ runner.temp }}/release.jks
+          LUMAFRAME_KEYSTORE_PASSWORD: ${{ secrets.LUMAFRAME_KEYSTORE_PASSWORD }}
+          LUMAFRAME_KEY_ALIAS: ${{ secrets.LUMAFRAME_KEY_ALIAS }}
+          LUMAFRAME_KEY_PASSWORD: ${{ secrets.LUMAFRAME_KEY_PASSWORD }}
         run: |
           chmod +x ./gradlew
           ./gradlew :app:assembleRelease --no-daemon --stacktrace
@@ -52,14 +52,14 @@ jobs:
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
           if [ ! -f "$APK" ]; then echo "release APK not found"; exit 1; fi
-          OUT="Frame-${{ github.ref_name }}.apk"
+          OUT="Lumaframe-${{ github.ref_name }}.apk"
           cp "$APK" "$OUT"
           sha256sum "$OUT" | tee "$OUT.sha256"
           echo "apk=$OUT" >> "$GITHUB_OUTPUT"
           # Stable, version-less copy so the README can link to a permanent
-          # /releases/latest/download/Frame.apk URL (the redirect needs a
+          # /releases/latest/download/Lumaframe.apk URL (the redirect needs a
           # filename that's identical across every release).
-          STABLE="Frame.apk"
+          STABLE="Lumaframe.apk"
           cp "$APK" "$STABLE"
           sha256sum "$STABLE" | tee "$STABLE.sha256"
           echo "stable=$STABLE" >> "$GITHUB_OUTPUT"

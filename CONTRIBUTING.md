@@ -1,6 +1,6 @@
-# Contributing to Frame
+# Contributing to Lumaframe
 
-Thanks for your interest! Frame is a hobby/open-source slideshow + screensaver for the
+Thanks for your interest! Lumaframe is a hobby/open-source slideshow + screensaver for the
 Meta Portal. Contributions, bug reports, and ideas are welcome.
 
 ## Building
@@ -46,13 +46,13 @@ See the **Install & run on Portal** section of the [README](README.md). In short
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Then either launch the **Frame** app icon (setup/settings) or set it as the screensaver
+Then either launch the **Lumaframe** app icon (setup/settings) or set it as the screensaver
 (commands in the README). The album can also be set over ADB for quick testing — see
 `ConfigReceiver` and the README.
 
 ## Project layout
 
-- `app/src/com/portalhacks/frame/` — sources (all Kotlin).
+- `app/src/com/iherdt/lumaframe/` — sources (all Kotlin).
   - `SlideshowComposeActivity` / `SlideshowController` — the full-screen slideshow.
   - `FrameDreamService` — the screensaver trampoline that launches the slideshow.
   - `SettingsActivity` (Compose) — the home-screen setup/settings UI.

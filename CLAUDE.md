@@ -4,7 +4,7 @@ Guidance for AI assistants (and humans) working in this repo.
 
 ## What this is
 
-**Frame** (repo: PortalFrame, app id `com.portalhacks.frame`) — an Android slideshow /
+**Lumaframe** (repo: Lumaframe, app id `com.iherdt.lumaframe`) — an Android slideshow /
 screensaver for the **Meta Portal** (Android 10 / API 29) that shows Google Photos and iCloud
 shared albums, plus photos pushed from a phone over Wi‑Fi (the "AirDrop for Portal" drop). App is
 100% Kotlin — Jetpack Compose for the settings screens, Android Views for the slideshow/scanner.
@@ -23,8 +23,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - Versions are pinned in `app/build.gradle.kts` (compileSdk 36, minSdk 28, targetSdk 29).
 - Set/clear the album for testing without rebuilding:
   ```bash
-  adb shell am broadcast -n com.portalhacks.frame/.ConfigReceiver --es url "https://photos.app.goo.gl/XXXX"
-  adb shell am broadcast -n com.portalhacks.frame/.ConfigReceiver --es url ""   # clear
+  adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es url "https://photos.app.goo.gl/XXXX"
+  adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es url ""   # clear
   ```
 - See README for the screensaver-install commands.
 
@@ -44,11 +44,19 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   Activity owns the album fetch/cache/refresh + night-dimming logic. Features: crossfade,
   clock/weather overlay, captions, Ken Burns, face-aware framing, ambient color, auto-enhance,
   night dimming, smart shuffle, On This Day, portrait pairing.
-- **`SettingsActivity`** (Kotlin/Compose) — the home-icon ("Frame") setup/settings screen: a
+- **`SettingsActivity`** (Kotlin/Compose) — the home-icon ("Lumaframe") setup/settings screen: a
   two-column "Set up" / "Customize" layout (tuning grouped into collapsible sections). Hands off to
   `PhotosActivity` (scanner / manual link entry) and `UploadsActivity` (phone-pushed photos grid),
   and shows the phone-drop QR.
 - **`PhotosActivity`** (Kotlin, Android Views) — camera QR scanner + manual entry (ZXing, vendored jar).
+  The scanner is three pieces: **`QrCamera`** (Camera2 luma stream, frames copied off the camera
+  thread and decoded on a worker), **`QrSearch`** in `QrDecode.kt` (tracked region, code-like patch
+  search, enlargement of small patches, ZXing decode) and **`ViewfinderView`** (live picture with a
+  box around a located code). Portals whose camera needs the legacy API keep the old Camera path,
+  chosen per device by `QrTuning`. Measured on a Portal+: apps get one fixed-focus 720p camera that
+  ignores zoom, exposure compensation and metering regions, and the 12 MP sensor is reserved for
+  preinstalled apps, so do not add camera steering there. `QrSearchTest` holds the decode floor
+  (pixels per module) on synthetic frames; keep it passing.
 - **`PhotoProvider` / `PhotoSources`** — provider abstraction + registry. `PhotoSources.matches(url)`
   / `fetch(url)` route a link to the right provider and return a shared `Album` (title + slides).
   Add a new provider by implementing `PhotoProvider` and listing it in `PhotoSources`.
@@ -64,7 +72,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   - **`DropServerService`** — foreground service owning the LAN server (started from the slideshow,
     Settings, and on boot); broadcasts `ACTION_UPLOAD` (package-scoped) on each upload.
   - **`LocalDropServer`** — embedded HTTP server (raw `ServerSocket` + hand-rolled multipart, no HTTP
-    lib): serves the mobile upload page (`GET /`) and accepts `POST /upload`. **Plaintext + LAN-only
+    lib): serves the mobile upload page (`GET /`) and accepts `POST /upload`, plus
+    `POST /album` for a pasted album link (validated through `PhotoSources`, same token gate). **Plaintext + LAN-only
     by design**, token-gated, image-validated (magic bytes), size/connection-capped.
   - **`LocalUploads`** — persistent `filesDir/uploads` store (the "keep") with count/byte caps.
   - **`DropAuth`** (per-install token carried in the QR), **`DropServerStatus`** (bound port + LAN
@@ -73,6 +82,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
     reached from `SettingsActivity`'s "Manage photos".
 - **`ConfigReceiver`** — `SharedPreferences` keys + the exported ADB config receiver.
 - **`Ui` (Views) / `Theme.kt` (Compose)** — the shared Portal dark palette + Inter typography.
+
+## Origin
+
+Lumaframe is based on Frame (`Ishtiaqhossain/portal-frame`, MIT). Keep the original copyright line
+in `LICENSE` and the credit in `NOTICE` and the README.
 
 ## Conventions & gotchas
 

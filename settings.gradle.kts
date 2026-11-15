@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PortalFrame"
+rootProject.name = "Lumaframe"
 include(":app")

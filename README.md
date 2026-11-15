@@ -1,102 +1,75 @@
-<div align="center">
+# Lumaframe
 
-# 🖼️ Frame
+A photo screensaver for the Meta Portal. It plays your Google Photos or iCloud shared albums, and
+photos pushed straight from a phone over Wi-Fi, whenever the Portal is idle, with a clock, captions,
+gentle motion and ambient color.
 
-### An open-source photo screensaver for the Meta Portal
+> App id `com.iherdt.lumaframe` · Target: Meta Portal (Android 10, API 29) · Not affiliated with Meta Platforms, Inc.
 
-Show your **Google Photos** or **iCloud** shared albums — or photos you **push straight from your phone**
-over Wi‑Fi — whenever your Portal is idle. Set it up on-device by scanning a QR code, then enjoy a clock,
-captions, cinematic motion, and ambient color.
+![Slideshow screensaver](docs/screenshots/01-slideshow.png)
 
-<br>
+## Where it comes from
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Ishtiaqhossain/portal-frame/ci.yml?branch=main&label=CI&logo=github&style=flat-square)](https://github.com/Ishtiaqhossain/portal-frame/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Ishtiaqhossain/portal-frame?label=release&logo=github&style=flat-square)](https://github.com/Ishtiaqhossain/portal-frame/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/Ishtiaqhossain/portal-frame/total?logo=github&style=flat-square)](https://github.com/Ishtiaqhossain/portal-frame/releases)
-[![License: MIT](https://img.shields.io/github/license/Ishtiaqhossain/portal-frame?style=flat-square&color=blue)](LICENSE)
+Lumaframe is based on [Frame (portal-frame)](https://github.com/Ishtiaqhossain/portal-frame) by
+Ishtiaq Hossain, used under the MIT License. The slideshow, the album providers, the settings and
+the phone photo drop are that project's work. Lumaframe changes how albums get onto the device:
 
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.0-7F52FF?logo=kotlin&logoColor=white&style=flat-square)](https://kotlinlang.org)
-[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white&style=flat-square)](https://developer.android.com/jetpack/compose)
-[![Android 10 · API 29](https://img.shields.io/badge/Android%2010-API%2029-3DDC84?logo=android&logoColor=white&style=flat-square)](https://developer.android.com)
-[![Meta Portal](https://img.shields.io/badge/Meta%20Portal-0467DF?logo=meta&logoColor=white&style=flat-square)](https://www.meta.com/portal/)
+- **A scanner built for the Portal's camera.** Apps on a Portal+ get one fixed-focus 720p camera
+  that ignores zoom and exposure controls, so the scanner works on frame rate and decoding instead:
+  frames are decoded on a worker thread (about 20 a second instead of 4), a code is located and
+  tracked before it is readable, and small codes are enlarged before decoding. Codes are read from
+  about 2 pixels per module, where the previous scanner needed 3.
+- **A viewfinder that tells you what it sees.** A live picture with a box around the code once it
+  is found, and hints to hold still or move closer.
+- **Album links from your phone.** The scanner screen shows a QR for your phone. The page it opens
+  takes a pasted Google Photos or iCloud album link and adds it to the frame, with no camera
+  scanning on the Portal at all.
 
-**[⬇️ Download APK](https://github.com/Ishtiaqhossain/portal-frame/releases/latest/download/Frame.apk)** ·
-**[📖 Install Guide](INSTALL.md)** ·
-**[✨ Features](#-features)** ·
-**[🛠️ Developers](#-for-developers)** ·
-**[🤝 Contributing](CONTRIBUTING.md)**
+## Install
 
-</div>
+The Portal has no app store, so the app is installed once from a computer over USB with `adb`.
+The [Install & User Guide](INSTALL.md) walks through it: install the APK, add your album, and turn
+Lumaframe on as the screensaver.
 
-> **Repo:** `PortalFrame` (`com.portalhacks.frame`) · **App name:** Frame · **Target:** Meta Portal (Android 10 / API 29)
+Build the APK yourself (see below), or take one from the
+[Releases page](https://github.com/iherdt/lumaframe/releases) when a release is published.
 
----
-
-## 📥 Install it on a Portal
-
-### ⬇️ [Download the latest APK](https://github.com/Ishtiaqhossain/portal-frame/releases/latest/download/Frame.apk)
-
-That link always serves the newest signed release. Prefer to pick a version (or grab the
-`.sha256` checksum)? Browse all builds on the **[Releases page](https://github.com/Ishtiaqhossain/portal-frame/releases/latest)**.
-
-Then follow the **[Install & User Guide](INSTALL.md)** — install the APK, add your album, and turn it
-on as the screensaver.
-
-## 📸 Screenshots
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/01-slideshow.png" alt="Slideshow screensaver"><br><sub><b>Slideshow</b> — your photos when the Portal is idle</sub></td>
-    <td width="50%"><img src="docs/screenshots/02-settings-albums.png" alt="Albums settings"><br><sub><b>Albums</b> — add several, stop or remove each</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/03-add-album.png" alt="Add an album"><br><sub><b>Add an album</b> — scan a QR or paste a link</sub></td>
-    <td><img src="docs/screenshots/04-empty-state.png" alt="First-run setup"><br><sub><b>Setup</b> — first run</sub></td>
-  </tr>
-</table>
-
-<sub>Sample photos shown; personal photos, album names and links are scrubbed.</sub>
-
-## ✨ Features
-
-- 🖼️ **Shared albums** — plays a **Google Photos or iCloud** shared album; new photos appear automatically.
-- 📱 **Add photos from a phone** — scan Frame's on-screen QR with any phone on the same Wi‑Fi, pick
-  photos from your camera roll in the browser, and they appear on the frame instantly and stay in the
-  rotation. No app, no account, no cloud — the photos go straight from your phone to the Portal.
-- 📷 **On-device setup** — **QR scan** or paste the link; no computer needed after install.
-- 🕰️ **Live overlays** — clock & weather, photo date captions, shuffle, adjustable timing and transitions.
-- 🎬 **Cinematic touches** — side-by-side portraits, pan/zoom (Ken Burns), auto-enhance, ambient color,
-  night dimming, and "On This Day" memories — all toggleable.
-- 👆 **Touch controls** — **swipe** to change photo, **tap** to dismiss, **long-press** to open setup.
-
-## 🛠️ For developers
-
-100% Kotlin — Jetpack Compose settings UI + Android Views slideshow — built with Gradle:
+Albums can also be set over ADB:
 
 ```bash
-./gradlew assembleDebug      # -> app/build/outputs/apk/debug/app-debug.apk
+adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es url "https://photos.app.goo.gl/XXXX"
+adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es remove_url "https://photos.app.goo.gl/XXXX"
 ```
 
-**Requirements:** JDK 17–21 and an Android SDK (`ANDROID_SDK_ROOT`, or a git-ignored
-`local.properties` with `sdk.dir=…`).
+## Features
 
-| | |
-|---|---|
-| **Language** | Kotlin 2.4.0 |
-| **UI** | Jetpack Compose + Android Views |
-| **SDK** | compileSdk 36 · minSdk 28 · targetSdk 29 |
-| **Build** | Gradle · JDK 17 |
-| **CI** | Android Lint + detekt + ktlint on every push/PR |
+- **Shared albums**: plays Google Photos or iCloud shared albums; new photos appear automatically.
+- **Photos from a phone**: scan the on-screen QR with any phone on the same Wi-Fi, pick photos in
+  the browser, and they join the rotation. No app, no account, no cloud.
+- **On-device setup**: scan a QR, paste a link, or hand the link over from your phone.
+- **Overlays**: clock and weather, photo date captions, shuffle, adjustable timing and transitions.
+- **Motion and light**: side-by-side portraits, pan and zoom, auto-enhance, ambient color, night
+  dimming and "On This Day" memories, each switchable.
+- **Touch**: swipe to change photo, tap to dismiss, long-press to open setup.
 
-See **[CONTRIBUTING.md](CONTRIBUTING.md)** for project layout and conventions, and
-**[RELEASING.md](RELEASING.md)** for cutting a signed release (a `v*` tag builds and publishes the
-APK to GitHub Releases).
+## For developers
 
-## 🔒 License & security
+All Kotlin: Jetpack Compose settings, Android Views for the slideshow and scanner, built with Gradle.
 
-Released under the **[MIT License](LICENSE)** — third-party attributions in [NOTICE](NOTICE).
-See **[SECURITY.md](SECURITY.md)** for the trust model and how to report issues.
+```bash
+./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk, installs as com.iherdt.lumaframe.dev
+./gradlew testDebugUnitTest    # scanner decode tests on synthetic frames
+./gradlew lintDebug detekt ktlintCheck
+```
 
-<div align="center">
-<sub>Built with ❤️ for the Meta Portal · Not affiliated with Meta Platforms, Inc.</sub>
-</div>
+Requirements: JDK 17 to 21 and an Android SDK (`ANDROID_SDK_ROOT`, or a git-ignored
+`local.properties` with `sdk.dir=`). The debug build carries its own app id, so it installs next
+to a release build.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for layout and conventions, [RELEASING.md](RELEASING.md)
+for signed releases, and [CLAUDE.md](CLAUDE.md) for the architecture.
+
+## License and security
+
+Released under the [MIT License](LICENSE). Third-party attributions are in [NOTICE](NOTICE).
+[SECURITY.md](SECURITY.md) describes the trust model and how to report issues.
