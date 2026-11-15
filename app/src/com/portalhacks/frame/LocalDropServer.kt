@@ -19,7 +19,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * app, no account, no cloud.
  *
  * `GET /` serves the upload page; `POST /upload` saves the posted image(s) into
- * [LocalUploads] and calls [onUpload] so the slideshow can show them immediately. The
+ * [LocalUploads] and calls [onUpload] so the slideshow can show them immediately.
+ * `POST /album` takes a Google Photos or iCloud shared-album link pasted on that page,
+ * checks that the album really opens, adds it ([Albums]) and calls [onAlbum]; it is the
+ * camera-free way to add an album (the phone scans the frame, not the other way round). The
  * server is plaintext and LAN-only **by design** (the photos already traverse the home
  * network; there are no credentials). Uploads are size-capped and must decode as a known
  * image type, and the client's filename is never used as a path — we mint our own.
@@ -31,6 +34,7 @@ class LocalDropServer(
     context: Context,
     private val token: String,
     private val onUpload: () -> Unit,
+    private val onAlbum: () -> Unit = {},
 ) {
     private val ctx = context.applicationContext
     private val running = AtomicBoolean(false)
@@ -148,8 +152,17 @@ class LocalDropServer(
 
             when {
                 method == "GET" && (path == "/" || path == "/index.html") ->
-                    if (authed) respond(out, 200, HTML, page(null))
-                    else respond(out, 403, HTML, FORBIDDEN.toByteArray())
+                    if (authed) {
+                        respond(out, 200, HTML, page(null, null, queryParam(target, "a") == "1"))
+                    } else {
+                        respond(out, 403, HTML, FORBIDDEN.toByteArray())
+                    }
+                method == "POST" && path == "/album" ->
+                    if (authed) {
+                        handleAlbum(input, headers, out)
+                    } else {
+                        respond(out, 403, HTML, FORBIDDEN.toByteArray())
+                    }
                 method == "POST" && path == "/upload" ->
                     if (authed) handleUpload(input, headers, out)
                     else respond(out, 403, HTML, FORBIDDEN.toByteArray())
@@ -248,6 +261,120 @@ class LocalDropServer(
         }
     }
 
+    /**
+     * `POST /album`: a pasted shared-album link (form field `url`, urlencoded). The link is
+     * validated exactly as a scanned or typed one is, then fetched once so the phone gets a
+     * real answer ("Added X, 134 photos") instead of a link that silently never plays.
+     */
+    private fun handleAlbum(
+        input: BufferedInputStream,
+        headers: Map<String, String>,
+        out: OutputStream,
+    ) {
+        val length = headers["content-length"]?.toIntOrNull() ?: -1
+        if (length <= 0 || length > MAX_ALBUM_BODY_BYTES) {
+            respondAlbum(
+                out,
+                400,
+                false,
+                "That doesn't look like an album link. Paste the link you get from Share in Google Photos or iCloud.",
+            )
+            return
+        }
+        val body =
+            readBody(input, length) ?: run {
+                respondAlbum(
+                    out, 400, false,
+                    "The link didn't arrive. Check that your phone is still on the same Wi-Fi, then try again.",
+                )
+                return
+            }
+        val url = albumLink(formField(String(body, StandardCharsets.UTF_8), "url"))
+        if (url == null) {
+            respondAlbum(
+                out,
+                400,
+                false,
+                "That isn't a Google Photos or iCloud shared-album link. " +
+                    "Open the album, tap Share, copy the link and paste it here.",
+            )
+            return
+        }
+        val prefs = ctx.getSharedPreferences(ConfigReceiver.PREFS, Context.MODE_PRIVATE)
+        if (Albums.list(prefs).contains(url)) {
+            respondAlbum(out, 200, true, "That album is already on the frame.")
+            return
+        }
+        val album =
+            try {
+                PhotoSources.fetch(url)
+            } catch (e: Exception) {
+                Log.w(TAG, "album from phone could not be fetched", e)
+                null
+            }
+        if (album == null || album.slides.isEmpty()) {
+            respondAlbum(
+                out, 400, false,
+                "The frame couldn't open that album. Make sure link sharing is turned on for it, then try again.",
+            )
+            return
+        }
+        Albums.add(prefs, url)
+        AlbumCache.write(prefs, url, album.slides, album.title)
+        Log.i(TAG, "album added from a phone: '$url' (${album.slides.size} photos)")
+        try {
+            onAlbum()
+        } catch (e: Exception) {
+            Log.w(TAG, "onAlbum callback failed", e)
+        }
+        val name = album.title.trim().let { if (it.isEmpty()) "the album" else "\u201c$it\u201d" }
+        val n = album.slides.size
+        val photos = if (n == 1) "photo" else "photos"
+        respondAlbum(out, 200, true, "Added $name, $n $photos. It will start showing on the frame shortly.")
+    }
+
+    private fun respondAlbum(
+        out: OutputStream,
+        status: Int,
+        ok: Boolean,
+        message: String,
+    ) {
+        val extra = "X-Frame-Album: ${if (ok) "ok" else "error"}\r\n"
+        respond(out, status, HTML, page(null, message, true), extra)
+    }
+
+    /** One field of an `application/x-www-form-urlencoded` body, decoded; null if absent. */
+    private fun formField(
+        body: String,
+        name: String,
+    ): String? {
+        for (kv in body.split("&")) {
+            val eq = kv.indexOf('=')
+            if (eq > 0 && kv.substring(0, eq) == name) {
+                return try {
+                    java.net.URLDecoder.decode(kv.substring(eq + 1), "UTF-8")
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * The shared-album link in pasted text, or null. Phones often paste the share sheet's
+     * whole sentence ("Check out this album https://…"), so take the first https link in it
+     * that a provider recognises.
+     */
+    private fun albumLink(pasted: String?): String? {
+        if (pasted == null) return null
+        for (m in Regex("https://[^\\s<>\"']+").findAll(pasted)) {
+            val candidate = m.value.trimEnd('.', ',', ')', ';')
+            if (PhotoSources.matches(candidate)) return candidate
+        }
+        return null
+    }
+
     /** Accurate, family-friendly copy for the upload outcome (used on the result page). */
     private fun uploadMessage(saved: Int, unsupported: Int, failed: Int): String {
         val total = saved + unsupported + failed
@@ -274,7 +401,7 @@ class LocalDropServer(
     /** Render the result page with the message, plus machine-readable headers for the JS path. */
     private fun respondUpload(out: OutputStream, status: Int, added: Int, rejected: Int, reason: String, message: String) {
         val extra = "X-Frame-Added: $added\r\nX-Frame-Rejected: $rejected\r\nX-Frame-Reason: $reason\r\n"
-        respond(out, status, HTML, page(message), extra)
+        respond(out, status, HTML, page(message, null, false), extra)
     }
 
     /** Read request bytes up to and including the blank-line header terminator (CRLF CRLF). */
@@ -361,13 +488,26 @@ class LocalDropServer(
         return null
     }
 
-    /** The upload page with the token injected into the form action and an optional message. */
-    private fun page(message: String?): ByteArray {
+    /**
+     * The phone page with the token injected into both form actions, an optional message for
+     * the photo part and for the album part, and the album part first when [albumFirst].
+     */
+    private fun page(
+        message: String?,
+        albumMessage: String?,
+        albumFirst: Boolean,
+    ): ByteArray {
         return PAGE
             .replace(ACTION_SLOT, "/upload?k=$token")
-            .replace(SLOT, message ?: "")
+            .replace(ALBUM_ACTION_SLOT, "/album?k=$token")
+            .replace(SLOT, escape(message ?: ""))
+            .replace(ALBUM_SLOT, escape(albumMessage ?: ""))
+            .replace(ORDER_SLOT, if (albumFirst) "album-first" else "")
             .toByteArray()
     }
+
+    /** Messages can carry an album title from the network; keep it text. */
+    private fun escape(t: String): String = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     companion object {
         private const val TAG = "PortalFrame"
@@ -383,8 +523,14 @@ class LocalDropServer(
         // How many uploads may buffer in memory at once (worst case ~MAX_BODY_BYTES each + a copy).
         private const val MAX_CONCURRENT_UPLOADS = 2
 
+        // An album link is short; anything longer is not one.
+        private const val MAX_ALBUM_BODY_BYTES = 4096
+
         private const val SLOT = "<!--SLOT-->"
         private const val ACTION_SLOT = "__ACTION__"
+        private const val ALBUM_SLOT = "<!--ALBUMSLOT-->"
+        private const val ALBUM_ACTION_SLOT = "__ALBUMACTION__"
+        private const val ORDER_SLOT = "__ORDER__"
         private const val HTML = "text/html; charset=utf-8"
 
         // Cap concurrent connections so a flood can't exhaust threads/memory.
@@ -409,15 +555,21 @@ class LocalDropServer(
             <!doctype html><html lang="en"><head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-            <title>Add photos to Frame</title>
+            <title>Add to Frame</title>
             <style>
               :root { color-scheme: dark; }
               * { box-sizing: border-box; }
               body { margin:0; min-height:100vh; display:flex; flex-direction:column;
-                align-items:center; justify-content:center; gap:20px; padding:28px;
+                align-items:center; justify-content:center; gap:36px; padding:28px;
                 font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
                 background:#0d0f12; color:#f3f4f6; }
               h1 { font-size:26px; margin:0; font-weight:650; text-align:center; }
+              section { width:100%; display:flex; flex-direction:column; align-items:center; gap:20px; }
+              body.album-first #albumPart { order:-1; }
+              hr { width:100%; max-width:420px; border:none; border-top:1px solid #2c323b; margin:0; }
+              input[type=url] { width:100%; min-height:64px; border-radius:18px; font-size:17px;
+                padding:0 18px; background:#1b1f25; color:#f3f4f6; border:1.5px solid #2c323b; }
+              input[type=url]:focus { outline:none; border-color:#4c8bf5; }
               .sub { margin:0; color:#9aa2ad; font-size:16px; text-align:center; max-width:32ch; }
               .msg { color:#7fd1a0; font-size:18px; font-weight:600; text-align:center; max-width:34ch; }
               .msg:empty { display:none; }
@@ -437,7 +589,8 @@ class LocalDropServer(
               .spin { width:18px; height:18px; border-radius:50%; border:3px solid #2c323b;
                 border-top-color:#4c8bf5; animation:spin 0.8s linear infinite; flex:none; }
               @keyframes spin { to { transform:rotate(360deg); } }
-            </style></head><body>
+            </style></head><body class="__ORDER__">
+              <section id="photoPart">
               <h1>Add photos to Frame</h1>
               <p class="sub">Pick photos from this phone &mdash; they&rsquo;ll appear on the frame
                 right away. No app or account needed.</p>
@@ -451,6 +604,22 @@ class LocalDropServer(
               <div class="status" id="status" role="status" aria-live="polite" hidden>
                 <span class="spin" aria-hidden="true"></span><span id="statusText">Sending&hellip;</span>
               </div>
+              </section>
+              <hr>
+              <section id="albumPart">
+              <h1>Add a shared album</h1>
+              <p class="sub">In Google Photos or iCloud, open the album, tap Share and copy the
+                link. Paste it here and the frame plays the whole album.</p>
+              <div class="msg" id="amsg" role="status" aria-live="polite"><!--ALBUMSLOT--></div>
+              <form id="af" method="post" action="__ALBUMACTION__">
+                <input id="aurl" name="url" type="url" inputmode="url" autocomplete="off"
+                  autocapitalize="off" spellcheck="false" placeholder="Paste the album link">
+                <button class="btn send" id="asend" type="submit">Add album to Frame</button>
+              </form>
+              <div class="status" id="astatus" role="status" aria-live="polite" hidden>
+                <span class="spin" aria-hidden="true"></span><span>Opening the album&hellip;</span>
+              </div>
+              </section>
               <script>
                 function byId(i){return document.getElementById(i);}
                 var file=byId('file'),send=byId('send'),count=byId('count'),f=byId('f'),
@@ -459,9 +628,31 @@ class LocalDropServer(
                   var n=file.files.length; send.disabled=n===0; send.textContent='Add to Frame';
                   count.textContent=n?(n+(n===1?' photo selected':' photos selected')):'';
                 });
-                function extractMsg(html){
-                  var m=html.match(/id="msg"[^>]*>([\s\S]*?)<\/div>/);
-                  return m?m[1].trim():'';
+                function extractMsg(html,id){
+                  var m=html.match(new RegExp('id="'+(id||'msg')+'"[^>]*>([\\s\\S]*?)<\\/div>'));
+                  if(!m)return '';
+                  var d=document.createElement('div'); d.innerHTML=m[1]; return d.textContent.trim();
+                }
+                var af=byId('af'),aurl=byId('aurl'),asend=byId('asend'),amsg=byId('amsg'),astatus=byId('astatus');
+                if(window.fetch&&window.URLSearchParams){
+                  af.addEventListener('submit',function(ev){
+                    ev.preventDefault();
+                    if(!aurl.value.trim()){aurl.focus();return;}
+                    amsg.textContent=''; amsg.className='msg';
+                    asend.disabled=true; astatus.hidden=false;
+                    fetch(af.action,{method:'POST',body:new URLSearchParams({url:aurl.value})}).then(function(r){
+                      return r.text().then(function(t){return {ok:r.headers.get('X-Frame-Album')==='ok',html:t};});
+                    }).then(function(res){
+                      astatus.hidden=true; asend.disabled=false;
+                      amsg.textContent=extractMsg(res.html,'amsg')||(res.ok?'Added to the frame.':'Something went wrong. Please try again.');
+                      amsg.className=res.ok?'msg':'msg err';
+                      if(res.ok){aurl.value='';}
+                    }).catch(function(){
+                      astatus.hidden=true; asend.disabled=false;
+                      amsg.textContent='Couldn\'t reach the frame. Make sure your phone is on the same Wi-Fi, then try again.';
+                      amsg.className='msg err';
+                    });
+                  });
                 }
                 if(window.fetch&&window.FormData){
                   f.addEventListener('submit',function(ev){

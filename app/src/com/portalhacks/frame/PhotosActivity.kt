@@ -1,17 +1,16 @@
 package com.portalhacks.frame
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ColorFilter
 import android.graphics.ImageFormat
-import android.graphics.Paint
-import android.graphics.PixelFormat
 import android.graphics.Rect
-import android.graphics.drawable.Drawable
 import android.hardware.Camera
 import android.os.Build
 import android.os.Bundle
@@ -31,17 +30,15 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
-import com.google.zxing.PlanarYUVLuminanceSource
-import com.google.zxing.common.GlobalHistogramBinarizer
-import com.google.zxing.common.HybridBinarizer
-import com.google.zxing.qrcode.QRCodeReader
-import java.util.EnumMap
+import java.io.File
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * On-device setup, shown as the "Photos" app icon. Styled with the Portal design
@@ -50,17 +47,57 @@ import java.util.Locale
  *
  *  - Status/settings: album currently playing, how to add one, slideshow settings.
  *  - Scanner: live camera QR scan (validated, added to the album list via [Albums]).
+ *  - Phone hand-off: a QR *on the frame* that opens a page on a phone where the album link
+ *    can be pasted ([LocalDropServer]); nothing has to be held up to the camera.
  *  - Manual entry: type/paste the link with the on-screen keyboard (QR-less fallback).
  *
- * All persist to the same `portalframe` prefs the slideshow reads
- * ([ConfigReceiver]). Uses the legacy [Camera] API for compactness on
- * this fixed API-29 device.
+ * All persist to the same `portalframe` prefs the slideshow reads ([ConfigReceiver]).
+ *
+ * The scanner has two camera paths. [QrCamera] (Camera2) drives the real sensor at full
+ * resolution with its own exposure bracket and is used wherever it opens. The legacy
+ * [Camera] path below is the fallback (and what a Portal Go's single 720p camera gets).
+ * Both hand their frames to the same [QrSearch] on a background thread, so the camera
+ * keeps its full frame rate while a frame is being decoded.
  */
 @Suppress("DEPRECATION")
 class PhotosActivity : Activity() {
-
     private val main = Handler(Looper.getMainLooper())
-    private val reader = QRCodeReader()
+    private val search = QrSearch()
+
+    // Camera2 path
+    private var cam2: QrCamera? = null
+    private var viewfinder: ViewfinderView? = null
+    private var viewport: FrameLayout? = null
+
+    @Volatile
+    private var lastSeenMs = 0L // when a code was last located (found but not yet read)
+    private var seenSinceMs = 0L // when the current sighting began
+    private var statsAt = 0L
+    private var statsFrames = 0
+    private var statsMs = 0L
+    private var statsPasses = 0
+    private var dumpLeft = 0
+
+    // Legacy path: one decode at a time, off the camera callback.
+    private var legacyWorker: ExecutorService? = null
+    private val legacyBusy = AtomicBoolean(false)
+    private var legacyBuf: ByteArray? = null
+
+    // A phone can add the album through the hand-off page while this screen is open.
+    private var albumReceiverRegistered = false
+    private val albumReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                c: Context?,
+                i: Intent?,
+            ) {
+                if (isFinishing) return
+                stopCamera()
+                scanHint?.text = "Album added from your phone ✓"
+                toast("Album added ✓")
+                main.postDelayed({ finish() }, 1500)
+            }
+        }
 
     private lateinit var root: FrameLayout
 
@@ -85,6 +122,8 @@ class PhotosActivity : Activity() {
     private var curZoom = 0
     private var zoomSettle = 0 // frames to let the AE settle after a zoom change before re-judging
     private var autoExpZoom = true // false when a fixed `zoompct` override pins the level
+    private var zoomWant = 0 // direction the last reading asked for
+    private var zoomVotes = 0 // consecutive readings that asked for it
 
     // Per-device QR tuning — picked once. The Portal models' front cameras and screen orientations
     // differ enough that one device's optimization regresses another (the Portal+ portrait
@@ -95,12 +134,12 @@ class PhotosActivity : Activity() {
      * Per-device QR-scanner knobs, isolated so an optimization for one Portal can't regress another.
      */
     private class QrTuning(
-        /** Pin digital zoom at this % of max and skip the closed-loop controller; 0 = run the loop. */
+        /** Use the Camera2 path ([QrCamera]); the legacy camera stays as its fallback. */
+        val camera2: Boolean,
+        /** Legacy path: pin digital zoom at this % of max and skip the closed-loop controller; 0 = no pin. */
         val fixedZoomPct: Int,
-        /** Starting zoom (% of max) for the closed-loop controller; used only when [fixedZoomPct] is 0. */
+        /** Legacy path: starting zoom (% of max) for the closed-loop controller; 0 = leave the zoom alone. */
         val loopStartZoomPct: Int,
-        /** Also try 90°/270° luma rotations when decoding — needed for portrait-mounted screens. */
-        val decodeRotations: Boolean,
     ) {
         companion object {
             fun forThisDevice(): QrTuning {
@@ -108,14 +147,18 @@ class PhotosActivity : Activity() {
                 return when {
                     // Portal Go (codename "terry"): landscape screen, fixed-focus ultra-wide front
                     // camera. A pinned high zoom both enlarges the QR and forces the AE to expose for
-                    // the bright screen; the screen is always landscape, so rotated decode passes only
-                    // burn frame budget. This is the original known-good recipe (commit 6f2e712).
+                    // the bright screen. This is the original known-good recipe (commit 6f2e712).
                     id.contains("terry") || id.contains("portalgo") ->
-                        QrTuning(fixedZoomPct = 90, loopStartZoomPct = 90, decodeRotations = false)
-                    // Portal / Portal+ (can be mounted portrait) and any unknown device: the adaptive
-                    // closed-loop zoom + rotated decode passes added for the vertical screen.
+                        QrTuning(camera2 = false, fixedZoomPct = 90, loopStartZoomPct = 90)
+                    // Portal+ 14" (codename "cipher"): measured, the feed ignores zoom and every
+                    // exposure control (see QrCamera), so no steering at all; Camera2 for its
+                    // viewfinder overlay and frame rate.
+                    id.contains("cipher") ->
+                        QrTuning(camera2 = true, fixedZoomPct = 0, loopStartZoomPct = 0)
+                    // Other Portals, not measured: the legacy camera with the adaptive
+                    // closed-loop zoom, as before.
                     else ->
-                        QrTuning(fixedZoomPct = 0, loopStartZoomPct = 70, decodeRotations = true)
+                        QrTuning(camera2 = false, fixedZoomPct = 0, loopStartZoomPct = 70)
                 }
             }
         }
@@ -129,13 +172,33 @@ class PhotosActivity : Activity() {
         root = FrameLayout(this)
         root.setBackgroundColor(Ui.BG)
         setContentView(root)
+        dumpLeft = intent?.getIntExtra("dump", 0) ?: 0
+        // The hand-off QR on this screen points at the LAN server; make sure it is up.
+        DropServerService.start(this)
         // The Compose SettingsActivity hands off here purely for the camera scanner /
         // manual-entry panel (it owns all other settings).
         startScan()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (!albumReceiverRegistered) {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this,
+                albumReceiver,
+                IntentFilter(DropServerService.ACTION_ALBUMS),
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            albumReceiverRegistered = true
+        }
+    }
+
     override fun onPause() {
         super.onPause()
+        if (albumReceiverRegistered) {
+            unregisterReceiver(albumReceiver)
+            albumReceiverRegistered = false
+        }
         stopCamera()
     }
 
@@ -163,10 +226,12 @@ class PhotosActivity : Activity() {
 
     // ---------------------------------------------------------------- prefs
 
-    private fun prefs(): SharedPreferences =
-        getSharedPreferences(ConfigReceiver.PREFS, MODE_PRIVATE)
+    private fun prefs(): SharedPreferences = getSharedPreferences(ConfigReceiver.PREFS, MODE_PRIVATE)
 
-    private fun topMargin(v: View, dp: Int) {
+    private fun topMargin(
+        v: View,
+        dp: Int,
+    ) {
         var lp = v.layoutParams as? LinearLayout.LayoutParams
         if (lp == null) {
             lp = LinearLayout.LayoutParams(MATCH, WRAP)
@@ -211,7 +276,12 @@ class PhotosActivity : Activity() {
     }
 
     /** A compact, content-width filled button (not full-bleed like the card buttons). */
-    private fun pillButton(label: String, fill: Int, textColor: Int, onClick: () -> Unit): Button {
+    private fun pillButton(
+        label: String,
+        fill: Int,
+        textColor: Int,
+        onClick: () -> Unit,
+    ): Button {
         val b = Button(this)
         b.text = label
         b.isAllCaps = false
@@ -263,136 +333,325 @@ class PhotosActivity : Activity() {
 
     private fun showScanner() {
         root.removeAllViews()
+        val dm = resources.displayMetrics
+        val landscape = dm.widthPixels > dm.heightPixels
 
-        val f = FrameLayout(this)
-        f.setBackgroundColor(Color.BLACK)
+        // Two columns side by side on a landscape screen, stacked on a portrait one:
+        // the camera scanner, and the ways to add an album without it.
+        val page = LinearLayout(this)
+        page.orientation = if (landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        page.gravity = if (landscape) Gravity.CENTER else Gravity.CENTER_HORIZONTAL
+        val pad = Ui.dp(this, 24f)
+        page.setPadding(pad, Ui.dp(this, 16f), pad, pad)
 
-        val surface = SurfaceView(this)
-        this.surface = surface
-        f.addView(surface, FrameLayout.LayoutParams(MATCH, MATCH))
+        val colW =
+            Math.min(
+                Ui.dp(this, 640f),
+                (if (landscape) dm.widthPixels / 2 else dm.widthPixels) - Ui.dp(this, 72f),
+            )
 
-        val boxSize = Ui.dp(this, 300f)
-        // Keep the target window near the TOP of the screen, close to the physical camera. On the
-        // Portal+ held vertically the lens sits at the top centre, so a centred window leaves the
-        // user aiming far below the camera. The mask cut-out and the blue box share this top so
-        // they stay aligned; everything else reflows around it (title above, hints below).
-        val boxTop = Ui.dp(this, 64f)
-        val boxCenterY = boxTop + boxSize / 2
+        // ---- column 1: the scanner
+        val scanCol = LinearLayout(this)
+        scanCol.orientation = LinearLayout.VERTICAL
+        scanCol.gravity = Gravity.CENTER_HORIZONTAL
 
-        // Black out everything except the target window, so the camera preview only lights up
-        // that window (less glare in the room) and the user's eye goes to the target. Drawn as
-        // the view's *background* (always drawn) so it reliably composites over the camera
-        // SurfaceView — the same path the blue box border uses.
-        val mask = View(this)
-        mask.background = object : Drawable() {
-            private val paint = Paint().apply { color = Color.BLACK }
-            override fun draw(canvas: Canvas) {
-                val r = bounds
-                val half = boxSize / 2
-                val l = (r.centerX() - half).toFloat()
-                val t = (boxCenterY - half).toFloat()
-                val rt = (r.centerX() + half).toFloat()
-                val bt = (boxCenterY + half).toFloat()
-                canvas.drawRect(r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), t, paint)
-                canvas.drawRect(r.left.toFloat(), bt, r.right.toFloat(), r.bottom.toFloat(), paint)
-                canvas.drawRect(r.left.toFloat(), t, l, bt, paint)
-                canvas.drawRect(rt, t, r.right.toFloat(), bt, paint)
-            }
-            override fun setAlpha(alpha: Int) {}
-            override fun setColorFilter(colorFilter: ColorFilter?) {}
-            @Deprecated("required override", ReplaceWith("PixelFormat.TRANSLUCENT"))
-            override fun getOpacity() = PixelFormat.TRANSLUCENT
-        }
-        f.addView(mask, FrameLayout.LayoutParams(MATCH, MATCH))
-
-        // Top-aligned target box (Portal blue) so the user knows where to aim the QR.
-        val box = View(this)
-        val border = Ui.roundRect(0x00000000, Ui.dp(this, 20f))
-        border.setStroke(Ui.dp(this, 4f), Ui.BLUE)
-        box.background = border
-        val bp = FrameLayout.LayoutParams(boxSize, boxSize)
-        bp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        bp.topMargin = boxTop
-        f.addView(box, bp)
-
-        // Centred max-width columns so nothing spans the whole screen.
-        val colW = Math.min(Ui.dp(this, 640f), resources.displayMetrics.widthPixels - Ui.dp(this, 48f))
-
-        // Title sits in the slim strip above the top-aligned window.
         val title = TextView(this)
         title.text = "Add an album"
         title.setTextColor(0xFFF0F0F0.toInt())
         title.typeface = Ui.bold(this)
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
         title.gravity = Gravity.CENTER_HORIZONTAL
-        title.setShadowLayer(8f, 0f, 1f, Color.BLACK)
-        val titleLp = FrameLayout.LayoutParams(colW, WRAP)
-        titleLp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        titleLp.topMargin = Ui.dp(this, 16f)
-        f.addView(title, titleLp)
+        scanCol.addView(title, LinearLayout.LayoutParams(MATCH, WRAP))
 
-        // Below the box: two clearly-titled sections — how to scan, and a manual paste fallback —
-        // with a wide gap between them so they read as distinct choices.
-        val belowBox = LinearLayout(this)
-        belowBox.orientation = LinearLayout.VERTICAL
-        belowBox.gravity = Gravity.CENTER_HORIZONTAL
+        val scanHeading = sectionHeading("Scan a QR code")
+        scanCol.addView(scanHeading, below(20f))
 
-        // Section 1: scanning (labels the scan window above) + instructions.
-        belowBox.addView(sectionHeading("Scan a QR code"), LinearLayout.LayoutParams(MATCH, WRAP))
+        // The viewfinder shows the camera's whole view (4:3), so the code can be anywhere in it.
+        val vp = FrameLayout(this)
+        vp.background = Ui.roundRect(Color.BLACK, Ui.dp(this, 20f))
+        vp.clipToOutline = true
+        viewport = vp
+        val vpW = colW
+        val vpH = vpW * 3 / 4
+        scanCol.addView(vp, LinearLayout.LayoutParams(vpW, vpH).apply { topMargin = Ui.dp(this@PhotosActivity, 12f) })
 
         val subtitle = TextView(this)
         this.scanHint = subtitle // reused for "that QR isn't…/Album added ✓" feedback
-        // The lens is fixed-focus, so slowly moving the QR toward/away sweeps it through the focus
-        // (and the zoom sweep's exposure levels) until a frame lands — hence the back-and-forth tip.
         subtitle.text = DEFAULT_SCAN_HINT
         subtitle.setTextColor(0xFFD2D2D2.toInt())
         subtitle.typeface = Ui.medium(this)
         subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         subtitle.gravity = Gravity.CENTER_HORIZONTAL
         subtitle.setLineSpacing(Ui.dp(this, 3f).toFloat(), 1f)
-        subtitle.setShadowLayer(8f, 0f, 1f, Color.BLACK)
-        val subLp = LinearLayout.LayoutParams(MATCH, WRAP)
-        subLp.topMargin = Ui.dp(this, 8f)
-        belowBox.addView(subtitle, subLp)
+        subtitle.minLines = 2
+        scanCol.addView(subtitle, below(12f))
 
-        // Section 2: manual entry, set apart by a wide gap.
-        val manualHeading = sectionHeading("Or enter the link manually")
-        val manualHeadingLp = LinearLayout.LayoutParams(MATCH, WRAP)
-        manualHeadingLp.topMargin = Ui.dp(this, 56f)
-        belowBox.addView(manualHeading, manualHeadingLp)
+        // ---- column 2: without the camera
+        val otherCol = LinearLayout(this)
+        otherCol.orientation = LinearLayout.VERTICAL
+        otherCol.gravity = Gravity.CENTER_HORIZONTAL
+
+        otherCol.addView(sectionHeading("Or use your phone"), LinearLayout.LayoutParams(MATCH, WRAP))
+        val phoneText = TextView(this)
+        phoneText.text = "Scan this code with your phone's camera, then paste the album link " +
+            "on the page that opens. Your phone has to be on the same Wi-Fi."
+        phoneText.setTextColor(0xFFD2D2D2.toInt())
+        phoneText.typeface = Ui.medium(this)
+        phoneText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        phoneText.gravity = Gravity.CENTER_HORIZONTAL
+        phoneText.setLineSpacing(Ui.dp(this, 3f).toFloat(), 1f)
+        otherCol.addView(phoneText, below(8f))
+
+        val qrSide = Ui.dp(this, 248f)
+        val qrPad = Ui.dp(this, 16f)
+        val qrView = ImageView(this)
+        qrView.background = Ui.roundRect(Color.WHITE, Ui.dp(this, 16f))
+        qrView.setPadding(qrPad, qrPad, qrPad, qrPad)
+        qrView.visibility = View.INVISIBLE
+        otherCol.addView(
+            qrView,
+            LinearLayout.LayoutParams(qrSide + 2 * qrPad, qrSide + 2 * qrPad).apply {
+                topMargin = Ui.dp(this@PhotosActivity, 16f)
+            },
+        )
+        loadHandoffQr(qrView, phoneText, 0)
+
+        val manualHeading = sectionHeading("Or enter the link here")
+        otherCol.addView(manualHeading, below(36f))
 
         val edit = Ui.field(this, "Paste a Google Photos or iCloud link")
         edit.setSingleLine(true)
         edit.inputType = InputType.TYPE_CLASS_TEXT or
             InputType.TYPE_TEXT_VARIATION_URI or
             InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        belowBox.addView(edit)
+        otherCol.addView(edit)
         val done = pillButton("Done", Ui.BLUE, 0xFFF0F0F0.toInt()) { addTypedAlbum(edit) }
         val doneLp = LinearLayout.LayoutParams(WRAP, WRAP)
         doneLp.topMargin = Ui.dp(this, 14f)
         doneLp.gravity = Gravity.END
         done.layoutParams = doneLp
-        belowBox.addView(done)
+        otherCol.addView(done)
 
-        val belowLp = FrameLayout.LayoutParams(colW, WRAP)
-        belowLp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        belowLp.topMargin = boxTop + boxSize + Ui.dp(this, 24f)
-        f.addView(belowBox, belowLp)
+        val gap = Ui.dp(this, 72f)
+        page.addView(scanCol, LinearLayout.LayoutParams(colW, WRAP))
+        page.addView(
+            otherCol,
+            LinearLayout.LayoutParams(colW, WRAP).apply {
+                if (landscape) {
+                    leftMargin = gap
+                } else {
+                    topMargin = Ui.dp(this@PhotosActivity, 40f)
+                }
+            },
+        )
+        root.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
 
-        root.addView(f)
+        startCamera()
+    }
 
-        surface.holder.addCallback(object : SurfaceHolder.Callback {
-            override fun surfaceCreated(h: SurfaceHolder) {
-                openCamera(h)
+    /**
+     * Show the hand-off QR once the LAN server has bound its port. It carries the same token
+     * as the photo-drop QR; `a=1` makes the page open on its "add an album" part.
+     */
+    private fun loadHandoffQr(
+        view: ImageView,
+        text: TextView,
+        attempt: Int,
+    ) {
+        if (isFinishing) return
+        val url = DropServerStatus.url(this)
+        if (url == null) {
+            if (attempt < 24) {
+                main.postDelayed({ loadHandoffQr(view, text, attempt + 1) }, 250)
+            } else {
+                text.text =
+                    if (DropServerStatus.lanIp() == null) {
+                        "Connect the frame to Wi-Fi to add an album from your phone."
+                    } else {
+                        "The phone hand-off isn't available right now."
+                    }
+            }
+            return
+        }
+        val worker =
+            Thread({
+                val bmp = QrCodes.bitmap("$url&a=1", 496)
+                main.post {
+                    if (bmp != null && !isFinishing) {
+                        view.setImageBitmap(bmp)
+                        view.visibility = View.VISIBLE
+                    }
+                }
+            }, "handoff-qr")
+        worker.isDaemon = true
+        worker.start()
+    }
+
+    // ------------------------------------------------------ camera: Camera2 first
+
+    /** Full-width, wrap-height layout params with a top margin in dp. */
+    private fun below(dp: Float) =
+        LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = Ui.dp(this@PhotosActivity, dp) }
+
+    private fun startCamera() {
+        val vp = viewport ?: return
+        // Testing aid: `--es cam legacy` or `--es cam camera2` overrides the device profile.
+        val force = intent?.getStringExtra("cam") ?: ""
+        if (force == "camera2" || (tuning.camera2 && force != "legacy")) {
+            val view = ViewfinderView(this)
+            vp.addView(view, FrameLayout.LayoutParams(MATCH, MATCH))
+            viewfinder = view
+            val cam = QrCamera(this, cam2Listener)
+            if (cam.start()) {
+                cam2 = cam
+                shapeViewport(cam.width, cam.height)
+                scanning = true
+                statsAt = System.currentTimeMillis()
+                return
+            }
+            vp.removeView(view)
+            viewfinder = null
+        }
+        startLegacyCamera()
+    }
+
+    /** Give the viewfinder box the camera's own shape, so the picture fills it. */
+    private fun shapeViewport(
+        w: Int,
+        h: Int,
+    ) {
+        val vp = viewport ?: return
+        val lp = vp.layoutParams ?: return
+        if (w <= 0 || h <= 0 || lp.width <= 0) return
+        lp.height = lp.width * h / w
+        vp.layoutParams = lp
+    }
+
+    private val cam2Listener =
+        object : QrCamera.Listener {
+            override fun onFrame(frame: Luma) {
+                if (!scanning) return
+                val t0 = System.nanoTime()
+                val r = search.scan(frame)
+                val ms = (System.nanoTime() - t0) / 1_000_000
+                val now = System.currentTimeMillis()
+                if (dumpLeft > 0) {
+                    dumpLeft--
+                    dumpFrame(frame, 0)
+                }
+                statsFrames++
+                statsMs += ms
+                statsPasses += r.passes
+                if (r.text != null) {
+                    scanning = false
+                    Log.i(TAG, "QR read by ${r.pass} in $ms ms")
+                    main.post { onQr(r.text) }
+                    return
+                }
+                val roi = r.roi
+                if (roi != null) {
+                    // Seen but not read yet: box it and tell the user what helps.
+                    if (lastSeenMs == 0L) {
+                        seenSinceMs = now
+                        Log.i(TAG, "QR located by ${r.pass}, ${roi.w}x${roi.h} at ${roi.left},${roi.top}")
+                    }
+                    lastSeenMs = now
+                    val closer = now - seenSinceMs > CLOSER_AFTER_MS
+                    main.post {
+                        viewfinder?.setBox(roi, frame.w, frame.h)
+                        if (scanning) {
+                            scanHint?.text =
+                                if (closer) {
+                                    "Almost. Move the code a little closer to the camera and hold it still."
+                                } else {
+                                    "Found it, hold still…"
+                                }
+                        }
+                    }
+                } else if (lastSeenMs != 0L && now - lastSeenMs > SEEN_HOLD_MS) {
+                    lastSeenMs = 0L
+                    main.post {
+                        viewfinder?.setBox(null, 0, 0)
+                        if (scanning) scanHint?.text = DEFAULT_SCAN_HINT
+                    }
+                }
+                if (now - statsAt >= STATS_EVERY_MS) {
+                    Log.i(
+                        TAG,
+                        "QR scan: " + statsFrames * 1000 / (now - statsAt) + " frames/s decoded, " +
+                            statsMs / Math.max(1, statsFrames) + " ms and " +
+                            statsPasses / Math.max(1, statsFrames) + " passes per frame, no QR decoded yet",
+                    )
+                    statsAt = now
+                    statsFrames = 0
+                    statsMs = 0
+                    statsPasses = 0
+                }
             }
 
-            override fun surfaceChanged(h: SurfaceHolder, fmt: Int, w: Int, height: Int) {
+            override fun onViewfinder(frame: Luma) {
+                val bmp = ViewfinderView.toBitmap(frame)
+                main.post { viewfinder?.setFrame(bmp) }
             }
 
-            override fun surfaceDestroyed(h: SurfaceHolder) {
-                stopCamera()
+            override fun onFailed(why: String) {
+                main.post {
+                    if (cam2 == null || isFinishing) return@post
+                    Log.i(TAG, "QR cam2 gave up ($why); falling back to the legacy camera")
+                    cam2?.stop()
+                    cam2 = null
+                    viewfinder?.let { viewport?.removeView(it) }
+                    viewfinder = null
+                    startLegacyCamera()
+                }
             }
-        })
+        }
+
+    /** Testing aid (`--ei dump N`): write frames as PGM into the app's external files folder. */
+    private fun dumpFrame(
+        frame: Luma,
+        step: Int,
+    ) {
+        try {
+            val dir = getExternalFilesDir(null) ?: return
+            val f = File(dir, "qr-" + System.currentTimeMillis() + "-step" + step + ".pgm")
+            f.outputStream().use {
+                it.write("P5\n${frame.w} ${frame.h}\n255\n".toByteArray())
+                it.write(frame.data, 0, frame.w * frame.h)
+            }
+            Log.i(TAG, "QR dump: $f")
+        } catch (e: Exception) {
+            Log.w(TAG, "QR dump failed", e)
+        }
+    }
+
+    // ------------------------------------------------------ camera: legacy fallback
+
+    private fun startLegacyCamera() {
+        val vp = viewport ?: return
+        val surface = SurfaceView(this)
+        this.surface = surface
+        vp.addView(surface, FrameLayout.LayoutParams(MATCH, MATCH).apply { gravity = Gravity.CENTER })
+        legacyWorker = Executors.newSingleThreadExecutor { r -> Thread(r, "qr-decode").apply { isDaemon = true } }
+        surface.holder.addCallback(
+            object : SurfaceHolder.Callback {
+                override fun surfaceCreated(h: SurfaceHolder) {
+                    openCamera(h)
+                }
+
+                override fun surfaceChanged(
+                    h: SurfaceHolder,
+                    fmt: Int,
+                    w: Int,
+                    height: Int,
+                ) {
+                }
+
+                override fun surfaceDestroyed(h: SurfaceHolder) {
+                    stopCamera()
+                }
+            },
+        )
     }
 
     private fun openCamera(holder: SurfaceHolder) {
@@ -435,11 +694,14 @@ class PhotosActivity : Activity() {
                 if (pinPct > 0) {
                     autoExpZoom = false // pinned level — the closed loop in previewCb stays off
                     curZoom = Math.max(0, Math.min(maxZoomIdx, maxZoomIdx * pinPct / 100))
-                } else {
+                } else if (tuning.loopStartZoomPct > 0) {
                     autoExpZoom = true
                     // Start fairly tight: a bright screen needs heavy fill to expose down, and the
                     // loop backs the zoom off again if that overshoots too dark.
                     curZoom = Math.max(0, Math.min(maxZoomIdx, maxZoomIdx * tuning.loopStartZoomPct / 100))
+                } else {
+                    autoExpZoom = false // this device's zoom does nothing: leave it alone
+                    curZoom = 0
                 }
                 pr.zoom = curZoom
                 zoomSettle = AE_SETTLE_FRAMES
@@ -452,9 +714,10 @@ class PhotosActivity : Activity() {
                 val ranges = pr.supportedPreviewFpsRange // each is [min,max] in fps*1000
                 // Prefer the range with the highest minimum (most aggressive exposure-time cap),
                 // breaking ties on the highest max.
-                val best = ranges?.maxWithOrNull(
-                    compareBy({ it[0] }, { it[1] }),
-                )
+                val best =
+                    ranges?.maxWithOrNull(
+                        compareBy({ it[0] }, { it[1] }),
+                    )
                 if (best != null) {
                     pr.setPreviewFpsRange(best[0], best[1])
                 }
@@ -526,6 +789,7 @@ class PhotosActivity : Activity() {
             val orientation = previewDisplayOrientation(id)
             camera.setDisplayOrientation(orientation)
             if (previewSize != null) {
+                shapeViewport(previewSize.width, previewSize.height)
                 sizePreviewToAspect(previewSize.width, previewSize.height, orientation)
             }
             camera.setPreviewDisplay(holder)
@@ -552,12 +816,13 @@ class PhotosActivity : Activity() {
     private fun previewDisplayOrientation(cameraId: Int): Int {
         val info = Camera.CameraInfo()
         Camera.getCameraInfo(cameraId, info)
-        val degrees = when (windowManager.defaultDisplay.rotation) {
-            Surface.ROTATION_90 -> 90
-            Surface.ROTATION_180 -> 180
-            Surface.ROTATION_270 -> 270
-            else -> 0
-        }
+        val degrees =
+            when (windowManager.defaultDisplay.rotation) {
+                Surface.ROTATION_90 -> 90
+                Surface.ROTATION_180 -> 180
+                Surface.ROTATION_270 -> 270
+                else -> 0
+            }
         return if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
             (360 - (info.orientation + degrees) % 360) % 360
         } else {
@@ -567,168 +832,115 @@ class PhotosActivity : Activity() {
 
     /**
      * Size the preview SurfaceView to the camera's aspect ratio, FITTING the whole frame inside
-     * the screen (letterboxed) rather than cropping to fill. Fitting keeps the field of view
+     * the viewfinder box (letterboxed) rather than cropping to fill. Fitting keeps the field of view
      * identical in portrait and landscape — covering would center-crop the 16:9 sensor frame much
      * harder on a portrait screen, making it look zoomed in vertical though the camera isn't. A
      * 90°/270° rotation swaps width/height. Decode is unaffected — it reads the raw frame.
      */
-    private fun sizePreviewToAspect(previewW: Int, previewH: Int, orientation: Int) {
+    private fun sizePreviewToAspect(
+        previewW: Int,
+        previewH: Int,
+        orientation: Int,
+    ) {
         val s = surface ?: return
         val rotated = orientation == 90 || orientation == 270
         val aspectW = if (rotated) previewH else previewW
         val aspectH = if (rotated) previewW else previewH
         if (aspectW == 0 || aspectH == 0) return
-        val dm = resources.displayMetrics
-        val scale = Math.min(
-            dm.widthPixels.toFloat() / aspectW,
-            dm.heightPixels.toFloat() / aspectH,
-        )
-        s.layoutParams = FrameLayout.LayoutParams(
-            (aspectW * scale).toInt(),
-            (aspectH * scale).toInt(),
-        ).apply { gravity = Gravity.CENTER }
+        val vp = viewport ?: return
+        // The box's requested size: it may just have been reshaped and not laid out yet.
+        val boxW = if (vp.layoutParams.width > 0) vp.layoutParams.width else vp.width
+        val boxH = if (vp.layoutParams.height > 0) vp.layoutParams.height else vp.height
+        val scale = Math.min(boxW.toFloat() / aspectW, boxH.toFloat() / aspectH)
+        s.layoutParams =
+            FrameLayout.LayoutParams(
+                (aspectW * scale).toInt(),
+                (aspectH * scale).toInt(),
+            ).apply { gravity = Gravity.CENTER }
         s.requestLayout()
     }
 
-    private val previewCb = Camera.PreviewCallback { data, _ ->
-        if (scanning && data != null && previewW != 0) {
-            frameCount++
-            if (frameCount == 1) {
-                Log.i(
-                    TAG,
-                    "QR scan: first frame " + previewW + "x" + previewH +
-                        " bytes=" + data.size,
-                )
-            }
-            // Closed-loop exposure: nudge the zoom toward a target brightness so the AE exposes the
-            // bright screen down out of clipping. Hold a few frames after each change for the AE to
-            // re-settle before judging again.
-            if (autoExpZoom) {
-                if (zoomSettle > 0) {
-                    zoomSettle--
-                } else {
-                    val luma = centerLuma(data, previewW, previewH)
-                    val moved = when {
-                        luma > EXP_BRIGHT && curZoom < maxZoomIdx -> {
-                            curZoom = Math.min(maxZoomIdx, curZoom + zoomStep()); true
+    private val previewCb =
+        Camera.PreviewCallback { data, _ ->
+            if (scanning && data != null && previewW != 0) {
+                frameCount++
+                if (frameCount == 1) {
+                    Log.i(
+                        TAG,
+                        "QR scan: first frame " + previewW + "x" + previewH +
+                            " bytes=" + data.size,
+                    )
+                }
+                // Closed-loop exposure: nudge the zoom toward a target brightness so the AE exposes the
+                // bright screen down out of clipping. Hold a few frames after each change for the AE to
+                // re-settle before judging again. While a code is in sight the zoom stays put: moving
+                // it would change the code's size and place just as the decoder is closing in.
+                val seen = lastSeenMs != 0L && System.currentTimeMillis() - lastSeenMs < SEEN_HOLD_MS
+                if (autoExpZoom && !seen) {
+                    if (zoomSettle > 0) {
+                        zoomSettle--
+                    } else {
+                        val luma = centerLuma(data, previewW, previewH)
+                        // Act only on a reading that persists, so one bright frame cannot start a swing.
+                        val want =
+                            when {
+                                luma > EXP_BRIGHT && curZoom < maxZoomIdx -> 1
+                                luma < EXP_DARK && curZoom > 0 -> -1
+                                else -> 0
+                            }
+                        zoomVotes = if (want != 0 && want == zoomWant) zoomVotes + 1 else 0
+                        zoomWant = want
+                        if (want != 0 && zoomVotes >= ZOOM_VOTES) {
+                            curZoom = Math.max(0, Math.min(maxZoomIdx, curZoom + want * zoomStep()))
+                            applyZoom(curZoom)
+                            search.reset()
+                            zoomSettle = AE_SETTLE_FRAMES
+                            zoomVotes = 0
                         }
-                        luma < EXP_DARK && curZoom > 0 -> {
-                            curZoom = Math.max(0, curZoom - zoomStep()); true
+                        if (frameCount % 30 == 1) {
+                            Log.i(TAG, "QR exp: centerLuma=$luma zoom=$curZoom/$maxZoomIdx")
                         }
-                        else -> false
-                    }
-                    if (moved) {
-                        applyZoom(curZoom)
-                        zoomSettle = AE_SETTLE_FRAMES
-                    }
-                    if (frameCount % 30 == 1) {
-                        Log.i(TAG, "QR exp: centerLuma=$luma zoom=$curZoom/$maxZoomIdx")
                     }
                 }
-            }
-            // Decode every frame: the Camera1 callback naturally drops frames while we're busy,
-            // so this self-throttles to whatever the CPU sustains rather than fixed half-rate.
-            val text = tryDecode(data, previewW, previewH)
-            if (text != null) {
-                scanning = false // stop processing further frames until we decide
-                main.post { onQr(text) }
-            } else if (frameCount % 30 == 1) {
-                Log.i(TAG, "QR scan: " + frameCount + " frames, no QR decoded yet")
-            }
-        }
-    }
-
-    /**
-     * Try to decode a QR from an NV21 luma plane.
-     *
-     * The camera sensor always delivers a landscape frame regardless of how the Portal screen is
-     * mounted, so on a vertically-held device the QR — upright to the user — sits rotated 90° in
-     * the frame. We decode the frame as-is first (the fast path, and what a landscape screen
-     * needs), then, only if that fails and the device can be mounted portrait ([QrTuning.decodeRotations]),
-     * re-decode the luma rotated upright, trying both 90° and 270° to cover either portrait mount.
-     * Skipping the rotations on a landscape-only device (Portal Go) cuts decode work ~3× per frame,
-     * which keeps the frame rate up so sharp frames actually get a decode pass.
-     */
-    private fun tryDecode(data: ByteArray, w: Int, h: Int): String? {
-        decodeAllRegions(data, w, h)?.let { return it }
-        if (tuning.decodeRotations) {
-            decodeAllRegions(rotateLuma(data, w, h, true), h, w)?.let { return it }
-            decodeAllRegions(rotateLuma(data, w, h, false), h, w)?.let { return it }
-        }
-        return null
-    }
-
-    /**
-     * Decode attempts over one (already-oriented) luma frame: full frame, then centred crops,
-     * each tried normal + mirrored (the front camera may deliver mirrored frames). Cropping in
-     * gives a small/distant QR more pixels per module.
-     */
-    private fun decodeAllRegions(data: ByteArray, w: Int, h: Int): String? {
-        decodeRegion(data, w, h, 0, 0, w, h, false)?.let { return it }
-        decodeRegion(data, w, h, 0, 0, w, h, true)?.let { return it }
-        for (frac in floatArrayOf(0.6f, 0.4f)) {
-            val side = (Math.min(w, h) * frac).toInt()
-            val left = (w - side) / 2
-            val top = (h - side) / 2
-            decodeRegion(data, w, h, left, top, side, side, false)?.let { return it }
-            decodeRegion(data, w, h, left, top, side, side, true)?.let { return it }
-        }
-        return null
-    }
-
-    /**
-     * Rotate just the NV21 luma (Y) plane 90° — clockwise if [cw], else counter-clockwise —
-     * returning a w*h Y-only buffer with the dimensions swapped (caller passes h as the new
-     * width, w as the new height). Chroma is dropped: [PlanarYUVLuminanceSource] reads only luma.
-     */
-    private fun rotateLuma(data: ByteArray, w: Int, h: Int, cw: Boolean): ByteArray {
-        val out = ByteArray(w * h)
-        if (cw) {
-            for (y in 0 until h) {
-                val row = y * w
-                for (x in 0 until w) out[x * h + (h - 1 - y)] = data[row + x]
-            }
-        } else {
-            for (y in 0 until h) {
-                val row = y * w
-                for (x in 0 until w) out[(w - 1 - x) * h + y] = data[row + x]
-            }
-        }
-        return out
-    }
-
-    private fun decodeRegion(
-        data: ByteArray,
-        w: Int,
-        h: Int,
-        left: Int,
-        top: Int,
-        rw: Int,
-        rh: Int,
-        mirror: Boolean,
-    ): String? {
-        val src = try {
-            PlanarYUVLuminanceSource(data, w, h, left, top, rw, rh, mirror)
-        } catch (e: Exception) {
-            return null
-        }
-        // Hybrid binarizer is best for sharp images; the global-histogram one sometimes wins on
-        // the soft, low-contrast frames this fixed-focus wide camera produces. And a blown-out
-        // bright screen often binarizes as a negative, so try the inverted luma too. Each combo
-        // is cheap relative to grabbing another frame; the first to decode wins.
-        for (lum in arrayOf(src, src.invert())) {
-            for (bin in arrayOf(HybridBinarizer(lum), GlobalHistogramBinarizer(lum))) {
-                try {
-                    return reader.decode(BinaryBitmap(bin), HINTS).text
-                } catch (notFound: Exception) {
-                    // try the next binarizer / inversion
-                } finally {
-                    reader.reset()
+                // Decode on a worker, one frame at a time; frames that arrive meanwhile are skipped,
+                // so the camera (and the zoom loop above) keeps its full rate.
+                val worker = legacyWorker
+                if (worker != null && legacyBusy.compareAndSet(false, true)) {
+                    val n = previewW * previewH
+                    var buf = legacyBuf
+                    if (buf == null || buf.size != n) {
+                        buf = ByteArray(n)
+                        legacyBuf = buf
+                    }
+                    System.arraycopy(data, 0, buf, 0, Math.min(n, data.size))
+                    val frame = Luma(buf, previewW, previewH)
+                    try {
+                        worker.execute {
+                            try {
+                                if (dumpLeft > 0) {
+                                    dumpLeft--
+                                    dumpFrame(frame, curZoom)
+                                }
+                                val r = search.scan(frame)
+                                if (r.text != null && scanning) {
+                                    scanning = false // stop processing further frames until we decide
+                                    main.post { onQr(r.text) }
+                                } else if (r.roi != null) {
+                                    lastSeenMs = System.currentTimeMillis()
+                                }
+                            } finally {
+                                legacyBusy.set(false)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        legacyBusy.set(false) // worker already shut down
+                    }
+                }
+                if (frameCount % 150 == 1) {
+                    Log.i(TAG, "QR scan: " + frameCount + " frames, no QR decoded yet")
                 }
             }
         }
-        return null
-    }
 
     /** Re-apply just the zoom level mid-stream (cheap next to a full camera reconfigure). */
     private fun applyZoom(z: Int) {
@@ -752,7 +964,11 @@ class PhotosActivity : Activity() {
      * sparsely. Drives the exposure loop: this region tracks the screen, so a high value means the
      * screen is blown out and the zoom should fill more to make the AE expose down.
      */
-    private fun centerLuma(data: ByteArray, w: Int, h: Int): Int {
+    private fun centerLuma(
+        data: ByteArray,
+        w: Int,
+        h: Int,
+    ): Int {
         val x0 = w / 4
         val x1 = w * 3 / 4
         val y0 = h / 4
@@ -777,6 +993,7 @@ class PhotosActivity : Activity() {
         val url = text?.trim() ?: ""
         if (!isPhotosLink(url)) {
             scanHint?.text = "That QR isn't a Google Photos or iCloud album link — try again"
+            viewfinder?.setBox(null, 0, 0)
             scanning = true // keep scanning
             return
         }
@@ -790,6 +1007,10 @@ class PhotosActivity : Activity() {
 
     private fun stopCamera() {
         scanning = false
+        cam2?.stop()
+        cam2 = null
+        legacyWorker?.shutdownNow()
+        legacyWorker = null
         camera?.let { c ->
             try {
                 c.setPreviewCallback(null)
@@ -812,17 +1033,16 @@ class PhotosActivity : Activity() {
         private const val AE_SETTLE_FRAMES = 3 // frames to let the AE settle after a zoom change
         private const val EXP_BRIGHT = 165 // center luma above this = blown out → zoom in (AE down)
         private const val EXP_DARK = 95 // center luma below this = too dark → zoom out
+        private const val ZOOM_VOTES = 3 // consecutive out-of-range readings before the zoom moves
+        private const val SEEN_HOLD_MS = 2000L // keep exposure/zoom this long after a code was last seen
+        private const val STATS_EVERY_MS = 5000L
+        private const val CLOSER_AFTER_MS = 2500L // located this long without a read: ask to come closer
         private const val DEFAULT_SCAN_HINT =
-            "Point the QR at the camera and slowly move it back and forth a few times until it " +
-                "scans. Or paste the link below."
+            "Hold the QR code up to the camera above the screen, about a forearm's length " +
+                "(30 cm) away, and keep it still for a moment."
 
         private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
-
-        private val HINTS: Map<DecodeHintType, Any> =
-            EnumMap<DecodeHintType, Any>(DecodeHintType::class.java).apply {
-                put(DecodeHintType.TRY_HARDER, java.lang.Boolean.TRUE)
-            }
 
         private fun pickCamera(): Int {
             val n = Camera.getNumberOfCameras()

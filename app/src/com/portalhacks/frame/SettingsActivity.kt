@@ -90,7 +90,7 @@ class SettingsActivity : ComponentActivity() {
     private var uploadReceiverRegistered = false
     private val uploadReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
-            uploadTick.intValue++
+            if (i?.action == DropServerService.ACTION_ALBUMS) resumeTick.intValue++ else uploadTick.intValue++
         }
     }
 
@@ -101,7 +101,8 @@ class SettingsActivity : ComponentActivity() {
         ScreensaverGuardService.startIfEnabled(this)
         if (!uploadReceiverRegistered) {
             ContextCompat.registerReceiver(
-                this, uploadReceiver, IntentFilter(DropServerService.ACTION_UPLOAD),
+                this, uploadReceiver,
+                IntentFilter(DropServerService.ACTION_UPLOAD).apply { addAction(DropServerService.ACTION_ALBUMS) },
                 ContextCompat.RECEIVER_NOT_EXPORTED,
             )
             uploadReceiverRegistered = true
@@ -582,7 +583,8 @@ class SettingsActivity : ComponentActivity() {
         Card("Add photos from a phone") {
             Body(
                 "On a phone connected to this Wi-Fi, scan the QR code and choose photos. " +
-                    "They'll appear on Frame right away — no app or account needed.",
+                    "They'll appear on Frame right away — no app or account needed. " +
+                    "The same page takes a Google Photos or iCloud album link.",
             )
             Spacer(Modifier.height(16.dp))
             val image = qr

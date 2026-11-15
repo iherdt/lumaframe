@@ -27,8 +27,8 @@ android {
         applicationId = "com.portalhacks.frame"
         minSdk = 28
         targetSdk = 29
-        versionCode = 14
-        versionName = "1.2.0"
+        versionCode = 1401
+        versionName = "1.2.0-ih1"
     }
 
     compileOptions {
@@ -48,6 +48,11 @@ android {
         res.setSrcDirs(listOf("res"))
         assets.setSrcDirs(listOf("assets"))
     }
+    // Plain JVM tests for the Android-free pieces (the QR search).
+    sourceSets["test"].apply {
+        java.setSrcDirs(listOf("test"))
+        kotlin.setSrcDirs(listOf("test"))
+    }
 
     signingConfigs {
         create("release") {
@@ -62,6 +67,12 @@ android {
     }
 
     buildTypes {
+        // The debug build installs next to a release build (own id), so a change can be tried
+        // on a Portal without removing the installed Frame.
+        getByName("debug") {
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+        }
         getByName("release") {
             // R8: shrink + obfuscate the code and strip unused resources for the release APK.
             isMinifyEnabled = true
@@ -119,4 +130,6 @@ dependencies {
     implementation(libs.compose.material.icons.core)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.exifinterface)
+
+    testImplementation("junit:junit:4.13.2")
 }

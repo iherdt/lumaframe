@@ -51,7 +51,14 @@ class SlideshowComposeActivity : ComponentActivity() {
     private var uploadReceiverRegistered = false
     private val uploadReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) {
-            onLocalUploadChanged()
+            if (i?.action == DropServerService.ACTION_ALBUMS) {
+                // A phone just added an album link: start playing it without waiting for a resume.
+                val prefs = getSharedPreferences(ConfigReceiver.PREFS, MODE_PRIVATE)
+                currentAlbums = Albums.enabled(prefs)
+                fetchAllAndApply(false)
+            } else {
+                onLocalUploadChanged()
+            }
         }
     }
 
@@ -162,7 +169,8 @@ class SlideshowComposeActivity : ComponentActivity() {
         DropServerService.start(this)
         if (!uploadReceiverRegistered) {
             ContextCompat.registerReceiver(
-                this, uploadReceiver, IntentFilter(DropServerService.ACTION_UPLOAD),
+                this, uploadReceiver,
+                IntentFilter(DropServerService.ACTION_UPLOAD).apply { addAction(DropServerService.ACTION_ALBUMS) },
                 ContextCompat.RECEIVER_NOT_EXPORTED,
             )
             uploadReceiverRegistered = true
