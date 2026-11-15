@@ -9,6 +9,13 @@ import com.google.zxing.common.GlobalHistogramBinarizer
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.decoder.Decoder
 import com.google.zxing.qrcode.detector.Detector
+import com.iherdt.lumaframe.QrFilters.crop
+import com.iherdt.lumaframe.QrFilters.curve
+import com.iherdt.lumaframe.QrFilters.enlarge
+import com.iherdt.lumaframe.QrFilters.enlarge2
+import com.iherdt.lumaframe.QrFilters.sharpen
+import com.iherdt.lumaframe.QrFilters.shrink
+import com.iherdt.lumaframe.QrFilters.shrinkBright
 import java.util.EnumMap
 
 /** A grey frame: [w]x[h] luma bytes, row-major, no padding. */
@@ -144,31 +151,53 @@ internal class QrSearch(
         attempt("sharp-bloom2", shrinkBright(sharp1, 1), full, 1)?.let { return done(it, "sharp-bloom2") }
         attempt("plain", frame, full, 1)?.let { return done(it, "plain") }
 
-        // One more look per frame, in rotation, to keep the frame rate up: other strengths of
-        // the same correction, and a doubled close look for small codes.
-        when (frameNo % 5) {
-            0 -> attempt("bloom2", shrinkBright(frame, 2), full, 1)?.let { return done(it, "bloom2") }
-            1 -> attempt("bloom3", shrinkBright(frame, 3), full, 1)?.let { return done(it, "bloom3") }
-            2 -> attempt("sharp-bloom1", sharp1, full, 1)?.let { return done(it, "sharp-bloom1") }
-            else -> {
-                // Where a code was last seen, else the middle of the frame.
-                val t = tracked
-                val near =
-                    if (t != null && frameNo <= trackedUntilFrame) {
-                        val side = Math.min(Math.min(frame.w, frame.h), Math.max(NEAR_SIDE, Math.max(t.w, t.h) * 3 / 2))
-                        clamp(Roi(t.cx - side / 2, t.cy - side / 2, side, side), frame)
-                    } else {
-                        val side = Math.min(Math.min(frame.w, frame.h), NEAR_SIDE)
-                        Roi((frame.w - side) / 2, (frame.h - side) / 2, side, side)
-                    }
-                val big = enlarge2(crop(frame, near))
-                if (frameNo % 5 == 3) {
-                    attempt("near", big, near, 2)?.let { return done(it, "near") }
-                } else {
-                    val r = if ((frameNo / 5) % 2 == 0) 5 else 3
-                    attempt("near-bloom", shrinkBright(big, r), near, 2)?.let { return done(it, "near-bloom") }
-                }
+        // Every frame as well: the close look. A phone a hand's length away puts the code at
+        // three to six camera pixels per module, where one pixel of bloom is already a third
+        // of a module and shrinking by whole pixels is too coarse. So the square where a code
+        // was last seen (else the middle of the frame) is sharpened, enlarged three times and
+        // shrunk there, in thirds of a camera pixel. Commercial readers do the same under
+        // names like "scale up until the module reaches a target size". On simulated frames
+        // across distance, brightness and blur this one look read every frame the others read
+        // and a sixth to a quarter more. The strength rotates because the right amount depends
+        // on how bright the screen is; one turn in five uses a steep tone curve instead of
+        // sharpening, which keeps only the cores of the dots.
+        val t = tracked
+        val near =
+            if (t != null && frameNo <= trackedUntilFrame) {
+                val want = Math.max(CLOSE_SIDE, Math.max(t.w, t.h) * 17 / 10)
+                val side = Math.min(Math.min(frame.w, frame.h), want)
+                clamp(Roi(t.cx - side / 2, t.cy - side / 2, side, side), frame)
+            } else {
+                val side = Math.min(Math.min(frame.w, frame.h), CLOSE_SIDE)
+                Roi((frame.w - side) / 2, (frame.h - side) / 2, side, side)
             }
+        val f = Math.min(CLOSE_MAX_FACTOR, CLOSE_TARGET / near.w)
+        if (f >= 2) {
+            val src = crop(frame, near)
+            val turn = frameNo % 5
+            if (turn == 4) {
+                val img = shrinkBright(curve(enlarge(src, f)), f - 1)
+                attempt("close-curve", img, near, f)?.let { return done(it, "close-curve") }
+            } else {
+                val big = enlarge(sharpen(src, 4, 3), f)
+                // Shrink by one, two or three camera pixels' worth.
+                val strength =
+                    when (turn) {
+                        2 -> 2
+                        0 -> 3
+                        else -> 1
+                    }
+                val name = if (strength == 1) "close" else "close-bloom$strength"
+                attempt(name, shrinkBright(big, strength * f), near, f)?.let { return done(it, name) }
+            }
+        }
+
+        // Every other frame one more whole-frame strength, in rotation: these read recorded
+        // frames of a large, strongly glaring code that the looks above missed.
+        when (frameNo % 6) {
+            0 -> attempt("bloom2", shrinkBright(frame, 2), full, 1)?.let { return done(it, "bloom2") }
+            2 -> attempt("bloom3", shrinkBright(frame, 3), full, 1)?.let { return done(it, "bloom3") }
+            4 -> attempt("sharp-bloom1", sharp1, full, 1)?.let { return done(it, "sharp-bloom1") }
         }
 
         val seen = located
@@ -328,8 +357,18 @@ internal class QrSearch(
         /** Crops no longer than this are doubled before decoding. */
         const val ENLARGE_BELOW = 520
 
-        /** Side of the square that gets the doubled close look in [scanWhole]. */
-        const val NEAR_SIDE = 480
+        /**
+         * Side of the square that gets the close look in [scanWhole]: around a tracked code, else
+         * in the middle of the frame. A tighter square enlarged further read no more frames, and
+         * this one forgives a place that is a little off.
+         */
+        const val CLOSE_SIDE = 360
+
+        /** The close look enlarges its square to about this many pixels a side... */
+        const val CLOSE_TARGET = 1080
+
+        /** ...but by no more than this factor. */
+        const val CLOSE_MAX_FACTOR = 4
 
         /** Frames to keep looking at the place a code was last seen. */
         const val TRACK_FRAMES = 12
@@ -338,208 +377,6 @@ internal class QrSearch(
             EnumMap<DecodeHintType, Any>(DecodeHintType::class.java).apply {
                 put(DecodeHintType.TRY_HARDER, java.lang.Boolean.TRUE)
             }
-
-        fun crop(
-            src: Luma,
-            r: Roi,
-        ): Luma {
-            if (r.left == 0 && r.top == 0 && r.w == src.w && r.h == src.h) return src
-            val out = ByteArray(r.w * r.h)
-            for (y in 0 until r.h) {
-                System.arraycopy(src.data, (r.top + y) * src.w + r.left, out, y * r.w, r.w)
-            }
-            return Luma(out, r.w, r.h)
-        }
-
-        /** Box-average [src] down by the whole factor [f]. */
-        fun shrink(
-            src: Luma,
-            f: Int,
-        ): Luma {
-            if (f <= 1) return src
-            val w = src.w / f
-            val h = src.h / f
-            val out = ByteArray(w * h)
-            val d = src.data
-            val n = f * f
-            for (y in 0 until h) {
-                val o = y * w
-                for (x in 0 until w) {
-                    var s = 0
-                    var row = y * f * src.w + x * f
-                    repeat(f) {
-                        for (i in 0 until f) s += d[row + i].toInt() and 0xFF
-                        row += src.w
-                    }
-                    out[o + x] = (s / n).toByte()
-                }
-            }
-            return Luma(out, w, h)
-        }
-
-        /**
-         * Undo some lens softness: add back a multiple of the difference between the picture
-         * and a box-blurred copy of it (an unsharp mask). The fixed-focus lens is set for
-         * people across a room, so a phone held close is always a little out of focus. The
-         * mild setting reads the smallest codes, the [strong] one the softest pictures.
-         */
-        fun sharpen(
-            src: Luma,
-            strong: Boolean,
-        ): Luma = if (strong) sharpen(src, 6, 16) else sharpen(src, 4, 6)
-
-        /** Unsharp mask with a box of radius [r] and a gain of [gain2] / 2. */
-        fun sharpen(
-            src: Luma,
-            r: Int,
-            gain2: Int,
-        ): Luma {
-            val w = src.w
-            val h = src.h
-            if (w <= 2 * r + 1 || h <= 2 * r + 1) return src
-            val d = src.data
-            val tmp = IntArray(w * h) // horizontal box sums
-            val span = 2 * r + 1
-            for (y in 0 until h) {
-                val o = y * w
-                var s = 0
-                for (x in -r..r) s += d[o + Math.max(0, x)].toInt() and 0xFF
-                for (x in 0 until w) {
-                    tmp[o + x] = s
-                    val entering = d[o + Math.min(w - 1, x + r + 1)].toInt() and 0xFF
-                    val leaving = d[o + Math.max(0, x - r)].toInt() and 0xFF
-                    s += entering - leaving
-                }
-            }
-            val out = ByteArray(w * h)
-            val col = IntArray(w)
-            for (y in -r..r) {
-                val o = Math.max(0, y) * w
-                for (x in 0 until w) col[x] += tmp[o + x]
-            }
-            val area = span * span
-            for (y in 0 until h) {
-                val o = y * w
-                for (x in 0 until w) {
-                    val v = d[o + x].toInt() and 0xFF
-                    val blur = col[x] / area
-                    val sharp = v + (v - blur) * gain2 / 2
-                    out[o + x] = Math.max(0, Math.min(255, sharp)).toByte()
-                }
-                val add = Math.min(h - 1, y + r + 1) * w
-                val sub = Math.max(0, y - r) * w
-                for (x in 0 until w) col[x] += tmp[add + x] - tmp[sub + x]
-            }
-            return Luma(out, w, h)
-        }
-
-        /**
-         * Shrink the bright parts of [src] by [r] pixels (a grey erosion: each pixel becomes the
-         * darkest value within [r]). A phone screen is far brighter than the room the camera
-         * exposes for, so every light dot of a light-on-dark code blooms into its neighbours
-         * and the gaps between dots close up. This opens them again.
-         */
-        fun shrinkBright(
-            src: Luma,
-            r: Int,
-        ): Luma {
-            if (r <= 0) return src
-            val w = src.w
-            val h = src.h
-            val d = src.data
-            if (r == 1 && w > 2 && h > 2) return shrinkBright1(d, w, h)
-            val tmp = ByteArray(w * h)
-            for (y in 0 until h) {
-                val o = y * w
-                for (x in 0 until w) {
-                    var m = 255
-                    for (i in Math.max(0, x - r)..Math.min(w - 1, x + r)) {
-                        val v = d[o + i].toInt() and 0xFF
-                        if (v < m) m = v
-                    }
-                    tmp[o + x] = m.toByte()
-                }
-            }
-            val out = ByteArray(w * h)
-            for (y in 0 until h) {
-                val o = y * w
-                for (x in 0 until w) {
-                    var m = 255
-                    for (j in Math.max(0, y - r)..Math.min(h - 1, y + r)) {
-                        val v = tmp[j * w + x].toInt() and 0xFF
-                        if (v < m) m = v
-                    }
-                    out[o + x] = m.toByte()
-                }
-            }
-            return Luma(out, w, h)
-        }
-
-        /** [shrinkBright] by one pixel, written out flat because it runs on every frame. */
-        private fun shrinkBright1(
-            d: ByteArray,
-            w: Int,
-            h: Int,
-        ): Luma {
-            val tmp = ByteArray(w * h)
-            for (y in 0 until h) {
-                val o = y * w
-                var a = d[o].toInt() and 0xFF
-                var b = a
-                for (x in 0 until w) {
-                    val c = d[o + if (x < w - 1) x + 1 else x].toInt() and 0xFF
-                    var m = if (a < b) a else b
-                    if (c < m) m = c
-                    tmp[o + x] = m.toByte()
-                    a = b
-                    b = c
-                }
-            }
-            val out = ByteArray(w * h)
-            for (y in 0 until h) {
-                val o = y * w
-                val up = (if (y > 0) y - 1 else y) * w
-                val dn = (if (y < h - 1) y + 1 else y) * w
-                for (x in 0 until w) {
-                    val a = tmp[up + x].toInt() and 0xFF
-                    val b = tmp[o + x].toInt() and 0xFF
-                    val c = tmp[dn + x].toInt() and 0xFF
-                    var m = if (a < b) a else b
-                    if (c < m) m = c
-                    out[o + x] = m.toByte()
-                }
-            }
-            return Luma(out, w, h)
-        }
-
-        /** Double [src] with bilinear interpolation. */
-        fun enlarge2(src: Luma): Luma {
-            val w = src.w * 2
-            val h = src.h * 2
-            val out = ByteArray(w * h)
-            val d = src.data
-            for (y in 0 until h) {
-                // Sample position in source pixels: (y - 0.5) / 2, kept in quarter units.
-                val qy = Math.max(0, Math.min((src.h - 1) * 4, 2 * y - 1))
-                val y0 = qy shr 2
-                val y1 = Math.min(src.h - 1, y0 + 1)
-                val fy = qy and 3
-                for (x in 0 until w) {
-                    val qx = Math.max(0, Math.min((src.w - 1) * 4, 2 * x - 1))
-                    val x0 = qx shr 2
-                    val x1 = Math.min(src.w - 1, x0 + 1)
-                    val fx = qx and 3
-                    val a = d[y0 * src.w + x0].toInt() and 0xFF
-                    val b = d[y0 * src.w + x1].toInt() and 0xFF
-                    val c = d[y1 * src.w + x0].toInt() and 0xFF
-                    val e = d[y1 * src.w + x1].toInt() and 0xFF
-                    val top = a * (4 - fx) + b * fx
-                    val bot = c * (4 - fx) + e * fx
-                    out[y * w + x] = ((top * (4 - fy) + bot * fy + 8) shr 4).toByte()
-                }
-            }
-            return Luma(out, w, h)
-        }
 
         /**
          * Up to two square patches of [img] that look most like a QR code: dense fine detail

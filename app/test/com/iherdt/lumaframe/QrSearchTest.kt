@@ -212,10 +212,10 @@ class QrSearchTest {
     @Test
     fun enlargeAndShrinkKeepGeometry() {
         val f = frame(320, 240, 4f, 160, 120, 0f, 1L, ErrorCorrectionLevel.L)
-        val big = QrSearch.enlarge2(f)
+        val big = QrFilters.enlarge2(f)
         assertEquals(640, big.w)
         assertEquals(480, big.h)
-        val back = QrSearch.shrink(big, 2)
+        val back = QrFilters.shrink(big, 2)
         var diff = 0L
         for (i in back.data.indices) diff += Math.abs((back.data[i].toInt() and 0xFF) - (f.data[i].toInt() and 0xFF))
         assertTrue("mean error ${diff / back.data.size}", diff / back.data.size < 6)
@@ -247,12 +247,12 @@ class QrSearchTest {
     fun shrinkBrightOpensTheGapsBetweenBloomedDots() {
         // Dots that bloomed to 5 of every 6 pixels: one dark pixel left between neighbours.
         val bloomed = dots(120, 120, 6, 5)
-        val fixed = QrSearch.shrinkBright(bloomed, 1)
+        val fixed = QrFilters.shrinkBright(bloomed, 1)
         // One pixel off every side: 3 of 6 in each direction, a quarter of the area.
         assertEquals(0.25f, brightShare(fixed), 0.02f)
         // The flat fast path for one pixel and the general path agree.
-        val twice = QrSearch.shrinkBright(QrSearch.shrinkBright(bloomed, 1), 1)
-        val two = QrSearch.shrinkBright(bloomed, 2)
+        val twice = QrFilters.shrinkBright(QrFilters.shrinkBright(bloomed, 1), 1)
+        val two = QrFilters.shrinkBright(bloomed, 2)
         assertTrue(twice.data.contentEquals(two.data))
     }
 
@@ -276,23 +276,77 @@ class QrSearchTest {
 
     @Test
     fun wholePicturePlanMapsACloseLookBackToFramePixels() {
-        // Only the doubled close look "finds" something, and only an unreadable code.
-        val reader = QrReader { img -> if (img.w == 2 * QrSearch.NEAR_SIDE) QrHit(null, Roi(100, 60, 200, 200)) else null }
-        val search = QrSearch(reader)
-        var found: QrResult? = null
-        // The close look comes round once in a few frames; take the first frame that has it.
-        for (i in 0 until 5) {
-            val r = search.scan(dots(1280, 720, 6, 2))
-            if (r.roi != null) {
-                found = r
-                break
+        // Only the enlarged close look "finds" something, and only an unreadable code.
+        val factor = QrSearch.CLOSE_TARGET / QrSearch.CLOSE_SIDE
+        val reader =
+            QrReader { img ->
+                if (img.w == factor * QrSearch.CLOSE_SIDE) QrHit(null, Roi(40 * factor, 20 * factor, 70 * factor, 70 * factor)) else null
             }
-        }
-        val roi = found!!.roi!!
+        val found = QrSearch(reader).scan(dots(1280, 720, 6, 2))
+        val roi = found.roi!!
         assertEquals(null, found.text)
-        // The close look is the middle NEAR_SIDE square, doubled: (100, 60) there is (50, 30) in it.
-        assertEquals((1280 - QrSearch.NEAR_SIDE) / 2 + 50, roi.left)
-        assertEquals((720 - QrSearch.NEAR_SIDE) / 2 + 30, roi.top)
-        assertEquals(100, roi.w)
+        assertEquals("close", found.pass)
+        // The close look is the middle CLOSE_SIDE square, enlarged: the place maps back to frame pixels.
+        assertEquals((1280 - QrSearch.CLOSE_SIDE) / 2 + 40, roi.left)
+        assertEquals((720 - QrSearch.CLOSE_SIDE) / 2 + 20, roi.top)
+        assertEquals(70, roi.w)
+    }
+
+    @Test
+    fun closeLookFollowsALocatedCode() {
+        // A code located off centre by a whole-frame look: the next close look is the square
+        // around that place, and what it finds maps back to frame pixels from there.
+        var calls = 0
+        val reader =
+            QrReader { img ->
+                calls++
+                if (img.w == 1280 && calls == 1) {
+                    QrHit(null, Roi(900, 100, 110, 110))
+                } else if (img.w != 1280 && calls > 4) {
+                    QrHit(null, Roi(30, 60, 90, 90))
+                } else {
+                    null
+                }
+            }
+        val search = QrSearch(reader)
+        search.scan(dots(1280, 720, 6, 2))
+        calls = 4
+        val second = search.scan(dots(1280, 720, 6, 2))
+        val factor = QrSearch.CLOSE_TARGET / QrSearch.CLOSE_SIDE
+        // Centre of the located code is (955, 155); the square is clamped to the top of the frame.
+        assertEquals(955 - QrSearch.CLOSE_SIDE / 2 + 30 / factor, second.roi!!.left)
+        assertEquals(60 / factor, second.roi!!.top)
+    }
+
+    @Test
+    fun shrinkBrightAgreesWithRepeatedSinglePixelShrinking() {
+        // The running-minimum path must equal r passes of the one-pixel path, on a picture
+        // whose sides are not multiples of the window.
+        val rnd = Random(7L)
+        val src = Luma(ByteArray(131 * 97) { rnd.nextInt(256).toByte() }, 131, 97)
+        for (r in 2..7) {
+            var step = src
+            repeat(r) { step = QrFilters.shrinkBright(step, 1) }
+            assertTrue("radius $r", step.data.contentEquals(QrFilters.shrinkBright(src, r).data))
+        }
+    }
+
+    @Test
+    fun enlargeKeepsGeometryAndTheCurveKeepsOnlyTheBrightest() {
+        val f = frame(320, 240, 4f, 160, 120, 0f, 1L, ErrorCorrectionLevel.L)
+        for (factor in 3..4) {
+            val big = QrFilters.enlarge(f, factor)
+            assertEquals(320 * factor, big.w)
+            assertEquals(240 * factor, big.h)
+            val back = QrFilters.shrink(big, factor)
+            var diff = 0L
+            for (i in back.data.indices) diff += Math.abs((back.data[i].toInt() and 0xFF) - (f.data[i].toInt() and 0xFF))
+            assertTrue("factor $factor mean error ${diff / back.data.size}", diff / back.data.size < 6)
+        }
+        val c = QrFilters.curve(Luma(byteArrayOf(0, 128.toByte(), 230.toByte(), 255.toByte()), 4, 1))
+        assertEquals(0, c.data[0].toInt() and 0xFF)
+        assertTrue((c.data[1].toInt() and 0xFF) < 40)
+        assertTrue((c.data[2].toInt() and 0xFF) in 170..200)
+        assertEquals(255, c.data[3].toInt() and 0xFF)
     }
 }

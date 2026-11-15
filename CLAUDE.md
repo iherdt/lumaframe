@@ -51,6 +51,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - **`PhotosActivity`** (Kotlin, Android Views) — camera QR scanner + manual entry (ZXing, vendored jar).
   The scanner's pieces: **`QrCamera`** (Camera2 luma stream, frames copied off the camera thread
   and decoded on a worker), **`QrSearch`** in `QrDecode.kt` (what to look at in each frame),
+  **`QrFilters`** (the picture operations: cut out, enlarge, sharpen, `shrinkBright`, `curve`),
   **`QrNative`** (the decoder: zxing-cpp through its Android AAR, whole grey frames in, text and
   position out) and **`ViewfinderView`** (live picture with a box around a located code). Portals
   whose camera needs the legacy API keep the old Camera path, chosen per device by `QrTuning`.
@@ -63,11 +64,26 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
     rotating extra look. Java ZXing read none of those frames in any form (its finder cannot see
     the bloomed ring corners); it remains only as the fallback path `scanPatches` (with `QrGray`)
     for JVM tests and for a device where the native library does not load.
-  - Change the plan only against recorded frames: `adb shell am broadcast -n
+  - A phone at 10 to 20 cm puts the code at three to six camera pixels per module, so a pixel of
+    bloom is a large part of a module. Every frame therefore also gets a *close look*: the square
+    around the tracked code (else the middle of the frame) sharpened, enlarged three times and
+    shrunk there in thirds of a pixel, the strength rotating, one turn in five with the tone
+    `curve` instead of sharpening. On simulated frames this look alone read every frame the
+    whole-frame looks read and more; replayed on a Portal+ the scanner went from 12 to 24 of 32
+    frames at about 90 ms a frame instead of 60. Tried on the same frames and not worth their
+    weight: the WeChat detector with its super-resolution network (one extra frame in 300),
+    Richardson-Lucy deconvolution, top-hat and local contrast filters, bicubic instead of
+    bilinear enlarging, and a tighter square enlarged four times.
+  - Change the plan only against frames, recorded ones where possible: `adb shell am broadcast -n
     com.iherdt.lumaframe/.ConfigReceiver --ez scan_debug true` makes the scanner save about one
     frame a second to the app's external files folder; copy frames into its `replay` subfolder and
     start `.PhotosActivity --ez replay true` to run them through the search on the device (results
     in logcat as `QR replay`). Switch `scan_debug` off afterwards; the frames are pictures of the room.
+    Without recorded frames, `tools/scan-sim/scansim.py` makes stand-ins from a screenshot of a
+    code (distance, screen brightness above what the sensor holds, lens blur, noise): `score`
+    compares the looks on a desk, `frames` writes PGMs for the same replay. It is a model, not
+    the camera: it agrees with the recorded frames on what fails and why, not on exact strengths,
+    so keep the whole-frame looks that read recorded frames.
   `QrSearchTest` covers the plan and the fallback's decode floor on synthetic frames; keep it passing.
 - **`PhotoProvider` / `PhotoSources`** — provider abstraction + registry. `PhotoSources.matches(url)`
   / `fetch(url)` route a link to the right provider and return a shared `Album` (title + slides).

@@ -16,7 +16,7 @@ the phone photo drop are that project's work. Lumaframe changes how albums get o
 
 - **A scanner built for the Portal's camera.** Apps on a Portal+ get one fixed-focus 720p camera
   that ignores zoom and exposure controls, so the scanner works on the picture instead. Frames are
-  decoded on a worker thread, about 15 a second instead of 4, with
+  decoded on a worker thread, about 10 a second instead of 4, each looked at several ways, with
   [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) as the decoder.
 - **Reads Google Photos album codes off a phone screen.** Those codes are light dots on a dark
   sheet with ring corners, and a phone screen is so much brighter than the room that the dots
@@ -24,6 +24,12 @@ the phone photo drop are that project's work. Lumaframe changes how albums get o
   decoding. On frames recorded from a real Portal+ the previous scanner read none; this one reads
   most of the frames in which the code is in view. Hold the phone 15 to 20 cm from the camera and
   turn its brightness down if it does not read.
+- **A close look for small, soft codes.** At that distance a module of the code is only three to
+  six camera pixels wide. The scanner cuts out the square where the code is, sharpens it, enlarges
+  it three times and corrects the glare there in thirds of a pixel, at a few strengths in turn,
+  one of them a steep tone curve that keeps only the cores of the dots. On simulated frames
+  across distance, screen brightness and blur, replayed on a Portal+, this doubled the frames that
+  read (24 of 32 against 12). `tools/scan-sim` makes such frames from a screenshot of a code.
 - **A viewfinder that tells you what it sees.** A live picture with a box around the code once it
   is found, and hints to hold still or move closer.
 - **Album links from your phone.** The scanner screen shows a QR for your phone. The page it opens
