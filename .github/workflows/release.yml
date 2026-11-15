@@ -31,8 +31,8 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # The runner image ships an Android SDK (ANDROID_HOME); Gradle fetches any missing
+      # platform or build-tools on its own, so no separate SDK setup step is needed.
 
       - name: Decode release keystore
         run: echo "${{ secrets.LUMAFRAME_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/release.jks"
