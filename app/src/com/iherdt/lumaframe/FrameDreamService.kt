@@ -1,6 +1,6 @@
 package com.iherdt.lumaframe
 
-import android.content.Intent
+import android.os.PowerManager
 import android.service.dreams.DreamService
 import android.util.Log
 
@@ -14,27 +14,40 @@ import android.util.Log
  * [SlideshowComposeActivity] (which renders and handles swipe/tap reliably) and exit
  * the dream. The Activity keeps the screen on, so nothing loops; a tap finishes
  * the Activity -> device idles -> dream fires again -> relaunch.
+ *
+ * With photos off and nothing shown instead, the Activity does not keep the screen on. Once
+ * its black screen is up the dream ends without opening anything: on a Portal+ the system then
+ * finds nothing awake and puts the display to sleep, where opening a screen wakes it again.
  */
 class FrameDreamService : DreamService() {
+    override fun onCreate() {
+        super.onCreate()
+        // A dream's window keeps the screen on unless told otherwise, and that alone is enough
+        // for the system to wake the Portal, not sleep, when the dream ends.
+        if (SlideshowComposeActivity.sleepsWhenIdle(this)) isScreenBright = false
+    }
 
     override fun onDreamingStarted() {
         super.onDreamingStarted()
+        if (letDisplaySleep()) {
+            Log.i(TAG, "Dream: photos are off, leaving the display to sleep")
+            finish()
+            return
+        }
         try {
-            val i = Intent(this, SlideshowComposeActivity::class.java)
-            // CLEAR_TASK (not CLEAR_TOP) so the slideshow starts in a fresh task with no retained
-            // task snapshot — the framework's black starting window (Theme.Frame) then covers the
-            // home screen during the hand-off instead of either home or a stale photo flashing.
-            i.addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK
-                    or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                    or Intent.FLAG_ACTIVITY_NO_ANIMATION
-            )
-            startActivity(i)
+            startActivity(SlideshowComposeActivity.launchIntent(this))
             Log.i(TAG, "Dream launched SlideshowComposeActivity")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch slideshow from dream", e)
         }
         finish() // hand off to the Activity
+    }
+
+    /** True when the black photos-off screen is already up, or the display is already asleep. */
+    private fun letDisplaySleep(): Boolean {
+        if (!SlideshowComposeActivity.sleepsWhenIdle(this)) return false
+        val awake = getSystemService(PowerManager::class.java)?.isInteractive ?: true
+        return SlideshowComposeActivity.darkShowing || !awake
     }
 
     private companion object {

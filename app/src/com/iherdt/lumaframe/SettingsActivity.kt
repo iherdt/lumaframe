@@ -192,8 +192,11 @@ class SettingsActivity : ComponentActivity() {
             Card("Screensaver") {
                 val active = isOurScreensaver()
                 val protectedMode = Screensaver.canWrite(ctx)
+                val photosOff = SlideshowComposeActivity.photosOff(ctx)
                 Body(
                     when {
+                        active && photosOff ->
+                            "Photos are off. Lumaframe is still your screensaver and shows what you pick below."
                         active && protectedMode ->
                             "✓ Lumaframe is your screensaver — and Lumaframe keeps it that way, even after a rotation."
                         active ->
@@ -203,8 +206,32 @@ class SettingsActivity : ComponentActivity() {
                     },
                 )
                 Spacer(Modifier.height(12.dp))
-                if (active) PrimaryBtn("Change screensaver") { openScreensaver() }
-                else PrimaryBtn("Use as screensaver") { enableScreensaver(); tick++ }
+                if (active) {
+                    PrimaryBtn(if (photosOff) "Turn photos on" else "Turn photos off") {
+                        prefs.edit().putBoolean(ConfigReceiver.KEY_PHOTOS_OFF, !photosOff).apply()
+                        // Show the result right away instead of waiting for the Portal to go idle.
+                        startActivity(SlideshowComposeActivity.launchIntent(ctx))
+                    }
+                    val show = ConfigReceiver.offShow(ctx)
+                    CycleRow("While photos are off", ConfigReceiver.OFF_SHOWS.first { it.first == show }.second) {
+                        val ids = ConfigReceiver.OFF_SHOWS.map { it.first }
+                        val next = ids[(ids.indexOf(show) + 1) % ids.size]
+                        prefs.edit().putString(ConfigReceiver.KEY_PHOTOS_OFF_SHOW, next).apply()
+                        tick++
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    // A second, quieter action under the main one.
+                    Button(
+                        onClick = { openScreensaver() },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PortalColors.Field),
+                    ) { Text("Change screensaver", color = PortalColors.TextBody, fontSize = 17.sp) }
+                } else {
+                    PrimaryBtn("Use as screensaver") {
+                        enableScreensaver()
+                        tick++
+                    }
+                }
                 if (Screensaver.immortalInstalled(ctx)) {
                     Spacer(Modifier.height(12.dp))
                     Text(

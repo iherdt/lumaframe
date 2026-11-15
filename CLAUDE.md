@@ -44,6 +44,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
   Activity owns the album fetch/cache/refresh + night-dimming logic. Features: crossfade,
   clock/weather overlay, captions, Ken Burns, face-aware framing, ambient color, auto-enhance,
   night dimming, smart shuffle, On This Day, portrait pairing.
+  **Photos off** (`photos_off`, the button in Settings) keeps that Activity as the screensaver
+  but shows its clock-only screen instead of photos: clock and weather, clock alone, or nothing
+  (`photos_off_show`). With nothing to show the Activity drops `FLAG_KEEP_SCREEN_ON`, and
+  `FrameDreamService` marks its dream not screen-bright and, once asleep, ends without opening
+  anything; measured on a Portal+, the system then puts the display to sleep instead of waking
+  it (a dream window that keeps the screen on makes it wake). Waking lands on the black screen.
 - **`SettingsActivity`** (Kotlin/Compose) — the home-icon ("Lumaframe") setup/settings screen: a
   two-column "Set up" / "Customize" layout (tuning grouped into collapsible sections). Hands off to
   `PhotosActivity` (scanner / manual link entry) and `UploadsActivity` (phone-pushed photos grid),

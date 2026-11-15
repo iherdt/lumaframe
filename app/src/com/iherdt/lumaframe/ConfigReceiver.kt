@@ -99,6 +99,22 @@ class ConfigReceiver : BroadcastReceiver() {
         if (any) {
             ed.apply()
         }
+
+        // Photos off or on, and what shows while they are off, like the controls in Settings:
+        //   adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --ez photos_off true
+        //   adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es photos_off_show clock
+        if (intent.hasExtra("photos_off_show")) {
+            val show = intent.getStringExtra("photos_off_show")?.trim().orEmpty()
+            if (OFF_SHOWS.any { it.first == show }) {
+                prefs.edit().putString(KEY_PHOTOS_OFF_SHOW, show).apply()
+                Log.i("Lumaframe", "photos off shows: $show")
+            }
+        }
+        if (intent.hasExtra("photos_off") || intent.hasExtra("photos_off_show")) {
+            // Applies at once when the system lets a receiver open a screen; otherwise the
+            // next time the Portal goes idle.
+            ctx.startActivity(SlideshowComposeActivity.launchIntent(ctx))
+        }
     }
 
     companion object {
@@ -107,6 +123,9 @@ class ConfigReceiver : BroadcastReceiver() {
         const val KEY_ALBUMS = "album_urls" // JSON array of configured album URLs
         const val KEY_ALBUMS_DISABLED = "album_urls_disabled" // JSON array of stopped album URLs
         const val KEY_GUARD = "screensaver_guard" // boolean: keep re-asserting Lumaframe as the dream
+        const val KEY_PHOTOS_OFF = "photos_off" // boolean: the screensaver shows no photos
+        const val KEY_PHOTOS_OFF_SHOW = "photos_off_show" // what it shows instead (see OFF_SHOWS)
+        const val DEFAULT_PHOTOS_OFF_SHOW = "clock_weather"
         const val KEY_NOTES = "sticky_notes" // master switch for the whole sticky-note + fortune overlay
         const val KEY_DROP_TOKEN = "drop_token" // secret gating the LAN photo-drop server (in its QR)
         const val KEY_NOTE = "note" // sticky-note text shown on the frame ("" = hidden)
@@ -169,7 +188,7 @@ class ConfigReceiver : BroadcastReceiver() {
             arrayOf("captions", KEY_CAPTIONS), arrayOf("face_framing", KEY_FACE), arrayOf("ambient_color", KEY_AMBIENT),
             arrayOf("auto_enhance", KEY_ENHANCE), arrayOf("zoom_fill", KEY_ZOOM_FILL),
             arrayOf("fortune", KEY_FORTUNE), arrayOf("sticky_notes", KEY_NOTES),
-            arrayOf("scan_debug", KEY_SCAN_DEBUG),
+            arrayOf("scan_debug", KEY_SCAN_DEBUG), arrayOf("photos_off", KEY_PHOTOS_OFF),
         )
 
         // Per-album photo caches are managed by AlbumCache (keyed by album URL).
@@ -185,6 +204,21 @@ class ConfigReceiver : BroadcastReceiver() {
             "nixie" to "Nixie tube",
             "analog" to "Analog",
         )
+
+        // What the screensaver shows while photos are off (id -> display name), in cycle order.
+        // "nothing" is a black screen that lets the Portal's display go to sleep.
+        val OFF_SHOWS =
+            listOf(
+                "clock_weather" to "Clock and weather",
+                "clock" to "Clock",
+                "nothing" to "Nothing, display off",
+            )
+
+        /** The stored photos-off choice, or the default for anything unknown. */
+        fun offShow(ctx: Context): String {
+            val id = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_PHOTOS_OFF_SHOW, null)
+            return if (OFF_SHOWS.any { it.first == id }) id!! else DEFAULT_PHOTOS_OFF_SHOW
+        }
 
         /** Display name for a clock-face id (falls back to Classic for anything unknown). */
         fun clockFaceName(id: String?): String =

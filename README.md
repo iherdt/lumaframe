@@ -52,6 +52,13 @@ adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es url "https:/
 adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es remove_url "https://photos.app.goo.gl/XXXX"
 ```
 
+So can photos off, and what shows meanwhile (`clock_weather`, `clock` or `nothing`):
+
+```bash
+adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --ez photos_off true
+adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es photos_off_show clock
+```
+
 ## Features
 
 - **Shared albums**: plays Google Photos or iCloud shared albums; new photos appear automatically.
@@ -61,6 +68,9 @@ adb shell am broadcast -n com.iherdt.lumaframe/.ConfigReceiver --es remove_url "
 - **Overlays**: clock and weather, photo date captions, shuffle, adjustable timing and transitions.
 - **Motion and light**: side-by-side portraits, pan and zoom, auto-enhance, ambient color, night
   dimming and "On This Day" memories, each switchable.
+- **Photos off**: one button in setup stops the photos. The screensaver then shows the clock and
+  weather, the clock alone, or nothing at all, in which case the Portal's display goes to sleep
+  until it is touched.
 - **Touch**: swipe to change photo, tap to dismiss, long-press to open setup.
 
 ## For developers

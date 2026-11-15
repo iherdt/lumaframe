@@ -134,6 +134,9 @@ class SlideshowController(
     private var onDismiss: Runnable? = null
     private var onSettings: Runnable? = null
     private var clockOnly = false // low-light mode: black screen, clock only
+    private var bigShowsClock = true // the clock-only screen's time and date
+    private var bigShowsWeather = false // ...and the weather on its date line ("photos off")
+    private var bigDateByFace = true // the chosen clock face keeps a date line
 
     // Clock widget transform (long-press the clock to edit; drag to move, pinch to resize). dx/dy
     // are translation as a fraction of screen W/H; scale is a size multiplier. Persisted to prefs.
@@ -658,7 +661,15 @@ class SlideshowController(
         clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, timeSp)
         clock.typeface = typeface
         dateLine.visibility = if (showDate) View.VISIBLE else View.GONE
-        bigDate.visibility = if (showDate) View.VISIBLE else View.GONE
+        bigDateByFace = showDate
+        applyBigClock()
+    }
+
+    private fun applyBigClock() {
+        bigClock.visibility = if (bigShowsClock) View.VISIBLE else View.GONE
+        // With neither the clock nor the weather the line carries the "photos are off" hint.
+        val line = (bigShowsClock && bigDateByFace) || bigShowsWeather || !bigShowsClock
+        bigDate.visibility = if (line) View.VISIBLE else View.GONE
     }
 
     // ------------------------------------------------ clock move/resize
@@ -1014,6 +1025,28 @@ class SlideshowController(
     }
 
     /**
+     * What the clock-only screen shows. Low light shows the time and date alone (the default);
+     * "photos off" picks the clock with the weather, the clock alone, or neither, which leaves a
+     * black screen with one dim line saying how to get back.
+     */
+    fun setClockOnlyContent(
+        clock: Boolean,
+        weather: Boolean,
+    ) {
+        bigShowsClock = clock
+        bigShowsWeather = weather
+        applyBigClock()
+        updateClock()
+    }
+
+    /** Restart the clock-only screen's clock and weather after a [stop]; the screen stays up. */
+    fun resumeClockOnly() {
+        if (!clockOnly) return
+        startClock()
+        if (showClock || bigShowsWeather) startWeather()
+    }
+
+    /**
      * Low-light "clock only" mode: a black screen showing just the clock (photos paused).
      * Mirrors the Portal night-mode "only show clock in low light" behaviour. Driven by
      * the ambient light sensor in [SlideshowComposeActivity].
@@ -1032,6 +1065,7 @@ class SlideshowController(
             clockOnlyScrim.visibility = View.VISIBLE // black backing covers any photo underneath
             clockOnlyBox.visibility = View.VISIBLE // big centered clock instead
             startClock() // ensure ticking + populate the big clock now
+            if (bigShowsWeather) startWeather()
         } else {
             clockOnlyBox.visibility = View.GONE
             clockOnlyScrim.visibility = View.GONE
@@ -1592,9 +1626,15 @@ class SlideshowController(
         }
         val time = timeFmt.format(c.time)
         val date = dateFmt.format(c.time)
-        // Centered low-light clock (no weather) — kept current even when the overlay is off.
+        // Centered clock-only screen (no weather in low light) — kept current even when the
+        // overlay is off.
         bigClock.text = time
-        bigDate.text = date
+        bigDate.text =
+            when {
+                bigShowsWeather -> withWeather(date)
+                bigShowsClock -> date
+                else -> "Photos are off. Long-press for settings."
+            }
         // A designed face draws itself from the current time; just repaint it (the analog's second
         // hand is driven faster by [secondsTick]).
         if (clockFaceId in ClockFaceView.FACES) {
@@ -1606,24 +1646,26 @@ class SlideshowController(
         }
         clock.text = time
         trimLeftBearing(clock)
-        val w = weather
-        if (w == null) {
-            dateLine.text = date
-        } else if (w.moon) {
-            // Clear night: draw a blue crescent (color emoji can't be tinted) + temp.
-            val sb = SpannableStringBuilder("$date   ")
-            val s = sb.length
-            sb.append(" ")
-            sb.setSpan(
-                ImageSpan(moonDrawable, ImageSpan.ALIGN_CENTER),
-                s, s + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
-            )
-            sb.append("  ").append(w.temp.toString()).append("°")
-            dateLine.text = sb
-        } else {
-            dateLine.text = date + "   " + w.label()
-        }
+        dateLine.text = withWeather(date)
         trimLeftBearing(dateLine)
+    }
+
+    /** The date line with the current weather after it, once a reading has loaded. */
+    private fun withWeather(date: String): CharSequence {
+        val w = weather ?: return date
+        if (!w.moon) return date + "   " + w.label()
+        // Clear night: draw a blue crescent (color emoji can't be tinted) + temp.
+        val sb = SpannableStringBuilder("$date   ")
+        val s = sb.length
+        sb.append(" ")
+        sb.setSpan(
+            ImageSpan(moonDrawable, ImageSpan.ALIGN_CENTER),
+            s,
+            s + 1,
+            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        sb.append("  ").append(w.temp.toString()).append("°")
+        return sb
     }
 
     /**

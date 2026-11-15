@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.View
+import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -22,6 +23,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+
+/**
+ * The slideshow keeps the screen on, so the Portal never sleeps while it plays. With photos off
+ * and nothing to show it must not: without these flags the system puts the display to sleep
+ * once the Portal is idle (see [FrameDreamService]).
+ */
+private fun Window.keepScreenOn(on: Boolean) {
+    val flags = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+    if (on) addFlags(flags) else clearFlags(flags)
+}
 
 /**
  * The live slideshow screensaver, hosted in Jetpack Compose.
@@ -42,6 +53,8 @@ class SlideshowComposeActivity : ComponentActivity() {
     private lateinit var loader: ImageLoader
     private lateinit var controller: SlideshowController
     private val handler = Handler(Looper.getMainLooper())
+
+    private var wasOff = false // this screen last resumed with photos off
 
     private var currentAlbums: List<String> = emptyList()
     private var currentIds: List<String> = ArrayList()
@@ -80,10 +93,9 @@ class SlideshowComposeActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Keeping the screen on is decided in onResume, which runs before the window is shown.
         window.addFlags(
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                 or WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD,
         )
         // Honor the Portal's own brightness: don't override the window brightness, so the
@@ -116,6 +128,21 @@ class SlideshowComposeActivity : ComponentActivity() {
         setContent {
             AndroidView(factory = { root }, modifier = Modifier.fillMaxSize())
         }
+    }
+
+    /** Photos off: the clock-only screen with the chosen content, and no photo loading. */
+    private fun showPhotosOff() {
+        val show = ConfigReceiver.offShow(this)
+        controller.setClockOnlyContent(clock = show != "nothing", weather = show == "clock_weather")
+        controller.setClockOnly(true)
+        controller.resumeClockOnly()
+        darkShowing = show == "nothing"
+        wasOff = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        darkShowing = false
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -154,8 +181,21 @@ class SlideshowComposeActivity : ComponentActivity() {
         // Pick up a sticky note set over ADB / Settings while we were away.
         controller.setNote(prefs.getString(ConfigReceiver.KEY_NOTE, "") ?: "")
 
-        // "Only show clock in low light": watch the ambient light sensor when enabled.
         sensorManager.unregisterListener(lightListener)
+        window.keepScreenOn(!sleepsWhenIdle(this))
+        if (photosOff(this)) {
+            showPhotosOff()
+            return
+        }
+        darkShowing = false
+        controller.setClockOnlyContent(clock = true, weather = false) // the low-light screen
+        if (wasOff) {
+            // Photos came back on under this same screen: drop the photos-off clock.
+            wasOff = false
+            controller.setClockOnly(false)
+        }
+
+        // "Only show clock in low light": watch the ambient light sensor when enabled.
         val low = lightSensor
         if (prefs.getBoolean(ConfigReceiver.KEY_CLOCK_LOW_LIGHT, ConfigReceiver.DEFAULT_CLOCK_LOW_LIGHT) &&
             low != null
@@ -306,6 +346,31 @@ class SlideshowComposeActivity : ComponentActivity() {
     companion object {
         private const val TAG = "Lumaframe"
         private const val REFRESH_INTERVAL_MS = 20 * 60 * 1000L // 20 min
+
+        /** True while the black photos-off screen is up, so the dream need not open it again. */
+        @Volatile var darkShowing = false
+            private set
+
+        /** True while the screensaver is set to show no photos. */
+        fun photosOff(ctx: Context): Boolean =
+            ctx.getSharedPreferences(ConfigReceiver.PREFS, MODE_PRIVATE)
+                .getBoolean(ConfigReceiver.KEY_PHOTOS_OFF, false)
+
+        /** True when photos are off with nothing shown instead: the display is left to sleep. */
+        fun sleepsWhenIdle(ctx: Context): Boolean = photosOff(ctx) && ConfigReceiver.offShow(ctx) == "nothing"
+
+        /**
+         * Opens the slideshow the way the screensaver does. CLEAR_TASK (not CLEAR_TOP) so it
+         * starts in a fresh task with no retained task snapshot; the framework's black starting
+         * window (Theme.Frame) then covers the home screen during the hand-off instead of either
+         * home or a stale photo flashing.
+         */
+        fun launchIntent(ctx: Context): Intent =
+            Intent(ctx, SlideshowComposeActivity::class.java).addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                    or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    or Intent.FLAG_ACTIVITY_NO_ANIMATION,
+            )
 
         // Lux thresholds for clock-only mode, with hysteresis to avoid flicker near the edge.
         private const val LOW_LUX = 8f

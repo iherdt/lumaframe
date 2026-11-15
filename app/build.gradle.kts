@@ -29,8 +29,8 @@ android {
         targetSdk = 29
         // The Portal is ARM; leaving out the x86 copies of the native decoder halves its weight.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
     }
 
     compileOptions {
